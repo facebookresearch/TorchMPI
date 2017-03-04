@@ -1,4 +1,3 @@
--- dependencies:
 require 'nn'
 local mpi      = require 'torchmpi'
 local mpinn    = require 'torchmpi.nn'

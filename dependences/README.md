@@ -27,14 +27,14 @@ wget https://www.open-mpi.org/software/ompi/v2.0/downloads/openmpi-2.0.1.tar.bz2
 ./configure --prefix=/usr/local --enable-mpi-cxx --enable-shared --with-slurm --enable-event-thread-support --enable-opal-multi-threads --enable-orte-progress-threads --enable-mpi-thread-multiple --enable-mpi-ext=affinity,cuda --with-cuda=/usr/local/cuda
 ```
 
-# Deploy on Nimbix
+# Manually deploy given a HOSTFILE and a TORCHMPI_ROOT path
 ```
-head -n 1 /etc/JARVICE/nodes | xargs -i ssh {} "cd /data/nccl && make install" && cat /etc/JARVICE/nodes | xargs -n 1 -P 1 -i ssh {} "cd /data/nccl && make install"
+head -n 1 ${HOSTFILE} | xargs -i ssh {} "cd ${TORCHMPI_ROOT}/nccl && make install" && cat ${HOSTFILE} | xargs -n 1 -P 1 -i ssh {} "cd ${TORCHMPI_ROOT}/nccl && make install"
 
-head -n 1 /etc/JARVICE/nodes | xargs -i ssh {} "cd /data/torchmpi && MPI_C_COMPILER=$(which mpicc) MPI_CXX_COMPILER=$(which mpic++) /usr/local/bin/luarocks make rocks/torch_mpi-scm-1.rockspec" && cat /etc/JARVICE/nodes | xargs -n 1 -P 1 -i ssh {} "cd /data/torchmpi && MPI_C_COMPILER=$(which mpicc) MPI_CXX_COMPILER=$(which mpic++) /usr/local/bin/luarocks make rocks/torch_mpi-scm-1.rockspec"
+head -n 1 ${HOSTFILE} | xargs -i ssh {} "cd ${TORCHMPI_ROOT}/TorchMPI && rm -Rf build* && MPI_C_COMPILER=$(which mpicc) MPI_CXX_COMPILER=$(which mpic++) /usr/local/bin/luarocks make rocks/torch_mpi-scm-1.rockspec" && cat ${HOSTFILE} | xargs -n 1 -P 1 -i ssh {} "cd ${TORCHMPI_ROOT}/TorchMPI && MPI_C_COMPILER=$(which mpicc) MPI_CXX_COMPILER=$(which mpic++) /usr/local/bin/luarocks make rocks/torch_mpi-scm-1.rockspec"
 ```
 
-# Killall on Nimbix
+# Manually kill all given a HOSTFILE
 ```
-cat /etc/JARVICE/nodes | xargs -n 1 -P 8 -i ssh {} "pkill -9 terra && pkill -9 luajit"
+cat ${HOSTFILE} | xargs -n 1 -P 8 -i ssh {} "pkill -9 terra && pkill -9 luajit"
 ```
