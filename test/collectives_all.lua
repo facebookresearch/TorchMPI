@@ -1,0 +1,222 @@
+require('torch')
+
+local cmd = torch.CmdLine()
+cmd:option('-inPlace', false, 'run inPlace or not')
+cmd:option('-benchmark', false, 'skip correctness check and benchmark performance instead')
+
+local config = cmd:parse(arg)
+config.check = not config.benchmark
+
+local nSkip = config.benchmark and 10 or 0
+local nRuns = config.benchmark and 10 + nSkip or 1
+
+-- If using GPUs, set the GPU before initializing MPI
+local mpi = require('torchmpi')
+mpi.start(true)
+
+local tester = require('torchmpi.tester')
+local asyncTimer = torch.Timer()
+
+local function getSelector()
+  local sel = mpi.collectiveSelector
+  sel = config.gpu and sel.gpu or sel.cpu
+  sel = config.singlenode and sel.singlenode or sel.multinode
+  return config.async and sel.async or sel.async
+end
+
+local tests = {}
+
+-------------------------------- reduce --------------------------------
+tests.reduce = {}
+tests.reduce.test = function(input, output)
+   -- Output must be zeroed explicitly to get proper results,
+   -- only when out of place
+   if input ~= output then output:zero() end
+
+   local ns = getSelector()
+
+   if config.async then
+      asyncTimer:reset()
+   end
+
+   local handle = ns.reduceTensor(0, input, output)
+
+   if config.async then
+      asyncTimer:stop()
+      if asyncTimer:time().real >= 5e-5 then
+         print(string.format(
+            'Warning: Async reduce launch took %f (expected < %f) for size %d',
+            asyncTimer:time().real, 5e-5, input:nElement()))
+      end
+   end
+
+   return handle
+end
+
+-- Careful, precision counts here once we reach a certain size
+tests.reduce.check = function(input, output)
+   if mpi.rank() == 0 then
+      local val = (mpi.size() * (mpi.size() - 1)) / 2
+      local min, max = output:min(), output:max()
+      assert(min == val, ('%f vs expected %f'):format(min, val))
+      assert(max == val, ('%f vs expected %f'):format(max, val))
+   end
+end
+
+-- Assumes a pipelined implementation of reduce
+tests.reduce.communicationVolumeGB = function(t)
+   local elemSize = 4
+   return (t:nElement() * elemSize) / 1e9
+end
+
+-------------------------------- broadcast --------------------------------
+tests.broadcast = {}
+
+tests.broadcast.test = function(input, output)
+   local ns = getSelector()
+
+   if config.async then
+      asyncTimer:reset()
+   end
+
+   local handle = ns.broadcastTensor(mpi.size() - 1, input)
+
+   if config.async then
+      asyncTimer:stop()
+      if asyncTimer:time().real >= 5e-5 then
+         print(string.format(
+            'Warning: Async broadcast launch took %f (expected < %f) for size %d',
+            asyncTimer:time().real, 5e-5, input:nElement()))
+      end
+   end
+
+   return handle
+end
+
+-- Careful, precision counts here once we reach a certain size
+tests.broadcast.check = function(input)
+   -- only 1 tensor, no input/output distinction
+   -- 0-based
+   local val = mpi.size() - 1
+   local min, max = input:min(), input:max()
+   if min ~= val or max ~= val then
+      error(('[%d/%d] %f vs expected %f %s (size: %d)\n'):format(
+            mpi.rank(), mpi.size(), min, val, input:data(), input:nElement()))
+   end
+end
+
+-- Assumes a pipelined implementation of broadcast
+tests.broadcast.communicationVolumeGB = function(t)
+   local elemSize = 4
+   return (t:nElement() * elemSize) / 1e9
+end
+
+-------------------------------- allreduce --------------------------------
+tests.allreduce = {}
+
+tests.allreduce.test = function(input, output)
+   -- Output must be zeroed explicitly to get proper results, only when out of place
+   if input ~= output then output:zero() end
+
+   local ns = getSelector()
+
+   if config.async then
+      asyncTimer:reset()
+   end
+
+   local handle = ns.allreduceTensor(input, output)
+
+   if config.async then
+      asyncTimer:stop()
+      if asyncTimer:time().real >= 5e-5 then
+         print(string.format(
+            'Warning: Async allreduce launch took %f (expected < %f) for size %d',
+            asyncTimer:time().real, 5e-5, input:nElement()))
+      end
+   end
+
+   return handle
+end
+
+-- Careful, precision counts here once we reach a certain size
+tests.allreduce.check = function(input, output)
+   local val = (mpi.size() * (mpi.size() - 1)) / 2
+   local min, max = output:min(), output:max()
+   if min ~= val or max ~= val then
+      error(('[%d/%d] %f-%f vs expected %f (size %d)\n'):format(
+            mpi:rank(), mpi:size(), min, max, val, output:nElement()))
+   end
+end
+
+-- Assumes a chunked-ring-based implementation of allreduce
+-- (i.e. 1 roundtrip of the whole data through slowest wire to saturate BW)
+tests.allreduce.communicationVolumeGB = function(t)
+   local elemSize = 4
+   return (2 * t:nElement() * elemSize * (mpi.size() - 1) / mpi.size()) / 1e9
+end
+
+-------------------------------- sendreceivenext -------------------------------
+tests.sendreceivenext = {}
+
+local dist = 1
+tests.sendreceivenext.dist = math.min(dist, mpi.size() - 1)
+tests.sendreceivenext.test = function(input, output)
+   local ns = getSelector()
+
+   if config.async then
+      asyncTimer:reset()
+   end
+
+   local handle = ns.sendreceiveTensor(
+      input,
+      (mpi.rank() - tests.sendreceivenext.dist) % mpi.size(),
+      (mpi.rank() + tests.sendreceivenext.dist) % mpi.size())
+
+   if config.async then
+      asyncTimer:stop()
+      if asyncTimer:time().real >= 5e-5 then
+         print(string.format(
+            'Warning: Async sendreceivenext launch took %f (expected < %f) for size %d',
+            asyncTimer:time().real, 5e-5, input:nElement())
+         )
+      end
+   end
+
+   return handle
+end
+
+-- Careful, precision counts here once we reach a certain size
+tests.sendreceivenext.check = function(input, output)
+   output:copy(input)
+   local val = (mpi.rank() - tests.sendreceivenext.dist) % mpi.size()
+   local min, max = output:min(), output:max()
+   assert(min == val)
+   assert(max == val)
+end
+
+-- Pure point-to-point, 1 hop
+tests.sendreceivenext.communicationVolumeGB = function(input)
+   local elemSize = 4
+   return input:nElement() * elemSize / 1e9
+end
+
+-------------------------------- Start tests --------------------------------
+tests.broadcast.implemented = true
+tests.reduce.implemented = true
+tests.allreduce.implemented = true
+tests.sendreceivenext.implemented = true
+
+for _, async in ipairs({false, true}) do
+   for _, gpu in ipairs({false, true}) do
+      for _, singlenode in ipairs({false, true}) do
+         config.async = async
+         config.gpu = gpu
+         config.singlenode = singlenode
+         tester.runOneConfig(tests, nRuns, nSkip, config)
+      end
+   end
+end
+
+mpi.barrier()
+if mpi.rank() == 0 then print('Success') end
+mpi.stop()
