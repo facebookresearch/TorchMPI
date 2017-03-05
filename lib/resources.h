@@ -155,7 +155,7 @@ struct CommunicatorKey {
 
   CommunicatorKey();
   CommunicatorKey(const CommunicatorKey& other);
-  CommunicatorKey& operator=(CommunicatorKey& other);
+  CommunicatorKey& operator=(const CommunicatorKey& other);
   static CommunicatorKey fromString(std::string s);
 };
 
@@ -164,6 +164,7 @@ struct CommunicatorKey {
 // based on equality of pair<string, parent rank> keys.
 ///////////////////////////////////////////////////////////////////////////////
 struct Communicator {
+  bool cartesian;
   CommunicatorKey key;
 
   MPI::Intracomm interComm;

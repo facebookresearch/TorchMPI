@@ -58,9 +58,9 @@ MPI.start = function(withCuda, ipcGroups, customCommunicatorInit)
    if customCommunicatorInit then
       MPI.numCommunicators =
          assert(customCommunicatorInit(),
-            'customCommunicatorInit should return a number of communicators')
+            'customCommunicatorInit should return the communicator hierarchy\'s depth')
       -- Principle of least surprise, if there is a custom communicator
-      -- it is assumed the communicatros for collectives are rooted under it
+      -- it is assumed the communicatrors for collectives are rooted under it
       MPI.C.torchmpi_set_communicator(MPI.numCommunicators)
    end
 

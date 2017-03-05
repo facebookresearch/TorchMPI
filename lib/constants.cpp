@@ -65,6 +65,11 @@ int kSmallAllreduceSizeGPU = 1 << 16;
 int kSmallBcastSizeCPU = 1 << 13;
 int kSmallAllreduceSizeCPU = 1 << 16;
 
+int kMinGPUBufferSize = 1 << 17;
+int kMaxGPUBufferSize = 1 << 22;
+int kMinCPUBufferSize = 1 << 17;
+int kMaxCPUBufferSize = 1 << 22;
+
 int kNumBuffersPerCollectiveCPU = 1;
 int kNumBuffersPerCollectiveGPU = 1;
 
@@ -127,6 +132,30 @@ extern "C" {
     }
     kSmallAllreduceSizeGPU = n;
   }
+  void torchmpi_set_min_buffer_size_per_cpu_collective(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kMinCPUBufferSize = n;
+  }
+  void torchmpi_set_min_buffer_size_per_gpu_collective(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kMinGPUBufferSize = n;
+  }
+  void torchmpi_set_max_buffer_size_per_cpu_collective(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kMaxCPUBufferSize = n;
+  }
+  void torchmpi_set_max_buffer_size_per_gpu_collective(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kMaxGPUBufferSize = n;
+  }
   void torchmpi_set_num_buffers_per_cpu_collective(int n) {
     if (immutableConstants) {
       THError("Communications related constants are immutable after initialization");
@@ -181,6 +210,18 @@ extern "C" {
   }
   int torchmpi_get_small_gpu_allreduce_size() {
     return kSmallAllreduceSizeGPU;
+  }
+  int torchmpi_get_min_buffer_size_per_cpu_collective() {
+    return kMinCPUBufferSize;
+  }
+  int torchmpi_get_min_buffer_size_per_gpu_collective() {
+    return kMinGPUBufferSize;
+  }
+  int torchmpi_get_max_buffer_size_per_cpu_collective() {
+    return kMaxCPUBufferSize;
+  }
+  int torchmpi_get_max_buffer_size_per_gpu_collective() {
+    return kMaxGPUBufferSize;
   }
   int torchmpi_get_num_buffers_per_cpu_collective() {
     return kNumBuffersPerCollectiveCPU;

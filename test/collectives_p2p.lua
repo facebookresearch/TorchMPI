@@ -16,6 +16,16 @@ local nRuns = config.benchmark and 10 + nSkip or 1
 -- If using GPUs, set the GPU before initializing MPI
 local mpi = require('torchmpi')
 mpi.start(config.gpu)
+-- Experiment with these options to tune collective performance
+if false then
+   -- mpi.C.torchmpi_set_flat_collectives()
+   mpi.C.torchmpi_set_hierarchical_collectives()
+   -- mpi.C.torchmpi_set_staged_collectives()
+   mpi.C.torchmpi_set_direct_collectives()
+   mpi.C.torchmpi_set_num_buffers_per_gpu_collective(4)
+   mpi.C.torchmpi_set_min_buffer_size_per_gpu_collective(2^10)
+   mpi.C.torchmpi_set_max_buffer_size_per_gpu_collective(2^20)
+end
 
 local mpicache = require('torchmpi.cache')
 local tester = require('torchmpi.tester')
@@ -27,7 +37,7 @@ local asyncTimer = torch.Timer()
 -------------------------------- broadcast --------------------------------
 tests.broadcast = {}
 -- only 1 tensor, no input/output distinction
-tests.broadcast.test = function(input)
+tests.broadcast.test = function(input, output, firstRun)
    -- mpi.p2p, mpi.async.p2p
    local ns = config.async and mpi.async.p2p or mpi.p2p
 
@@ -41,7 +51,7 @@ tests.broadcast.test = function(input)
       return 'NYI'
    end
 
-   if config.async then
+   if config.async and not firstRun then
       asyncTimer:stop()
       if asyncTimer:time().real >= 5e-5 then
          print(string.format(
@@ -85,7 +95,7 @@ tests.allreduce.test = function(input, output)
 
    local handle = ns.allreduceTensor(input, output)
 
-   if config.async then
+   if config.async and not firstRun then
       asyncTimer:stop()
       if asyncTimer:time().real >= 5e-5 then
          print(string.format(

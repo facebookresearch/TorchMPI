@@ -32,11 +32,6 @@ transferBounds(long chunkIndex, long bufferSize, long vectorLength) {
 
 } // ns anon
 
-// Min transfer size to reaming in a nice latency regime (131K matches the
-// default OpenMPI transfer size)
-constexpr size_t kMinGPUBufferSize = 1 << 17;
-// 4MB max per buffer per thread
-constexpr size_t kMaxGPUBufferSize = 1 << 22;
 // Switch broadcast from tree to pipeline
 constexpr size_t kNElementTreeBased = 1 << 19;
 

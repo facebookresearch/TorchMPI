@@ -30,6 +30,18 @@ extern int kSmallAllreduceSizeCPU;
 extern int kSmallBcastSizeGPU;
 extern int kSmallAllreduceSizeGPU;
 
+// Min transfer size to reaming in a nice latency regime (131K matches the
+// default OpenMPI transfer size)
+extern int kMinGPUBufferSize;
+// 4MB max per buffer per thread
+extern int kMaxGPUBufferSize;
+
+// Min transfer size to reaming in a nice latency regime (131K matches the
+// default OpenMPI transfer size)
+extern int kMinCPUBufferSize;
+// 4MB max per buffer per thread
+extern int kMaxCPUBufferSize;
+
 extern int kNumBuffersPerCollectiveCPU;
 extern int kNumBuffersPerCollectiveGPU;
 

@@ -103,14 +103,17 @@ string getCommunicatorNames() {
   for (int l = 0; l < mainThreadCommunicators.size(); ++l) {
     auto &c = getMainThreadCommunicatorAtLevel(l);
     ss << "l : " << l << " -> key("
-       << getMainThreadCommunicatorAtLevel(l).toString()
-       << ") (" << commSize(c.interComm) << " in intercomm) ";
+       << c.toString()
+       << ") (" << commSize(c.interComm) << " in intercomm, I am rank "
+       << commRank(c.interComm) << ") ";
     if (l == getCommunicatorLevel() &&
         getCommunicatorType() == CommunicatorType::inter) {
       ss << "* ";
     }
-    ss << " (" << commSize(c.intraComm) << " in intracomm) ";
-    if (l == getCommunicatorLevel()) { ss << "* "; }
+    ss << " (" << commSize(c.intraComm) << " in intracomm, I am rank "
+       << commRank(c.intraComm) << ") ";
+    ss << "cartesian: " << (c.cartesian ? "true" : "false");
+    if (l == getCommunicatorLevel()) { ss << " * "; }
     ss << endl;
   }
   return ss.str();
@@ -239,6 +242,10 @@ void torchmpi_set_communicator(int level) {
             0, mainThreadCommunicators.size() - 1, level);
   }
   setCommunicator(resources::CommunicatorType::intra, level);
+}
+
+bool torchmpi_is_cartesian_communicator() {
+  return getMainThreadCommunicator().cartesian;
 }
 
 int torchmpi_rank() {

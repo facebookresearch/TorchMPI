@@ -49,7 +49,7 @@ tests.customBarrier.communicationVolumeGB = function() return 0 end
 -------------------------------- broadcast --------------------------------
 tests.broadcast = {}
 
-tests.broadcast.test = function(input, output)
+tests.broadcast.test = function(input, output, firstRun)
    -- mpi or mpi.async
    local ns = config.async and mpi.async or mpi
 
@@ -59,7 +59,7 @@ tests.broadcast.test = function(input, output)
 
    local handle = ns.broadcastTensor(mpi.size() - 1, input)
 
-   if config.async then
+   if config.async and not firstRun then
       asyncTimer:stop()
       if asyncTimer:time().real >= 5e-5 then
          print(string.format(
@@ -90,7 +90,7 @@ end
 -------------------------------- reduce --------------------------------
 tests.reduce = {}
 
-tests.reduce.test = function(input, output)
+tests.reduce.test = function(input, output, firstRun)
    -- Output must be zeroed explicitly to get proper results, only when out of place
    if input ~= output then output:zero() end
 
@@ -103,7 +103,7 @@ tests.reduce.test = function(input, output)
 
    local handle = ns.reduceTensor(0, input, output)
 
-   if config.async then
+   if config.async and not firstRun then
       asyncTimer:stop()
       if asyncTimer:time().real >= 5e-5 then
          print(string.format(
@@ -134,7 +134,7 @@ end
 -------------------------------- allreduce --------------------------------
 tests.allreduce = {}
 
-tests.allreduce.test = function(input, output)
+tests.allreduce.test = function(input, output, firstRun)
    -- Output must be zeroed explicitly to get proper results, only when out of place
    if input ~= output then output:zero() end
 
@@ -147,7 +147,7 @@ tests.allreduce.test = function(input, output)
 
    local handle = ns.allreduceTensor(input, output)
 
-   if config.async then
+   if config.async and not firstRun then
       asyncTimer:stop()
       if asyncTimer:time().real >= 5e-5 then
          print(string.format(
@@ -179,7 +179,7 @@ tests.sendreceivenext = {}
 
 local dist = 1
 tests.sendreceivenext.dist = math.min(dist, mpi.size() - 1)
-tests.sendreceivenext.test = function(input, output)
+tests.sendreceivenext.test = function(input, output, firstRun)
    -- mpi or mpi.async
    local ns = config.async and mpi.async or mpi
 
@@ -192,7 +192,7 @@ tests.sendreceivenext.test = function(input, output)
       (mpi.rank() - tests.sendreceivenext.dist) % mpi.size(),
       (mpi.rank() + tests.sendreceivenext.dist) % mpi.size())
 
-   if config.async then
+   if config.async and not firstRun then
       asyncTimer:stop()
       if asyncTimer:time().real >= 5e-5 then
          print(string.format(

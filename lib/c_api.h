@@ -36,6 +36,9 @@ extern "C" {
   // the road if mismatches occur. Better view this as a collective operation.
   void torchmpi_set_communicator(int level);
 
+  // Queries whether the current communicator is cartesian or not
+  bool torchmpi_is_cartesian_communicator();
+
   // Sets the levels of communicators use for collective operations
   // By default the 2 innermost levels are used for collectives.
   // This is useful for setting up communicators for parameterservers on top
@@ -87,10 +90,19 @@ extern "C" {
   void torchmpi_set_small_cpu_allreduce_size(int n); // default 1 << 16
   void torchmpi_set_small_gpu_broadcast_size(int n); // default 1 << 13
   void torchmpi_set_small_gpu_allreduce_size(int n); // default 1 << 16
-  int torchmpi_get_small_cpu_broadcast_size();
-  int torchmpi_get_small_cpu_allreduce_size();
-  int torchmpi_get_small_gpu_broadcast_size();
-  int torchmpi_get_small_gpu_allreduce_size();
+  void torchmpi_set_min_buffer_size_per_cpu_collective(int n); // default (1 << 17)
+  void torchmpi_set_min_buffer_size_per_gpu_collective(int n); // default (1 << 17)
+  void torchmpi_set_max_buffer_size_per_cpu_collective(int n); // default (1 << 22)
+  void torchmpi_set_max_buffer_size_per_gpu_collective(int n); // default (1 << 22)
+
+  int torchmpi_get_small_cpu_broadcast_size();       // default 1 << 13
+  int torchmpi_get_small_cpu_allreduce_size();       // default 1 << 16
+  int torchmpi_get_small_gpu_broadcast_size();       // default 1 << 13
+  int torchmpi_get_small_gpu_allreduce_size();       // default 1 << 16
+  int torchmpi_get_min_buffer_size_per_cpu_collective();     // default (1 << 17)
+  int torchmpi_get_min_buffer_size_per_gpu_collective();     // default (1 << 17)
+  int torchmpi_get_max_buffer_size_per_cpu_collective();     // default (1 << 22)
+  int torchmpi_get_max_buffer_size_per_gpu_collective();     // default (1 << 22)
 
   // How many buffers per collective should be used.
   // Note this number is per helper thread.
