@@ -14,6 +14,8 @@ local function declMPI(withCuda)
       broadcast_def = broadcast_def .. [[
          void torchmpi_broadcast_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src);
          SynchronizationHandle* torchmpi_async_broadcast_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src);
+         void torchmpi_p2p_broadcast_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src);
+         SynchronizationHandle* torchmpi_async_p2p_broadcast_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src);
       ]]
       reduce_def = reduce_def .. [[
          void torchmpi_reduce_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, TH]] .. v .. [[Tensor* output, int dst);
@@ -128,33 +130,46 @@ local function declMPI(withCuda)
       const char* torchmpi_communicator_names();
       int torchmpi_push_communicator(const char* key);
       void torchmpi_set_communicator(int level);
+      bool torchmpi_is_cartesian_communicator();
       void torchmpi_set_collective_span(int begin, int end);
       int torchmpi_num_nodes_in_communicator();
       void torchmpi_free_ipc_descriptors();
-      void torchmpi_set_flat_collectives();
-      void torchmpi_set_hierarchical_collectives();
-      void torchmpi_set_staged_collectives();
-      void torchmpi_set_direct_collectives();
+      void torchmpi_set_hierarchical_collectives();      // default true
+      void torchmpi_set_flat_collectives();              // default false
+      void torchmpi_set_staged_collectives();            // default true
+      void torchmpi_set_direct_collectives();            // default false
       void torchmpi_set_small_cpu_broadcast_size(int n); // default 1 << 13
       void torchmpi_set_small_cpu_allreduce_size(int n); // default 1 << 16
       void torchmpi_set_small_gpu_broadcast_size(int n); // default 1 << 13
       void torchmpi_set_small_gpu_allreduce_size(int n); // default 1 << 16
-      int torchmpi_get_small_cpu_broadcast_size();
-      int torchmpi_get_small_cpu_allreduce_size();
-      int torchmpi_get_small_gpu_broadcast_size();
-      int torchmpi_get_small_gpu_allreduce_size();
-      void torchmpi_set_num_buffers_per_cpu_collective(int n); // default 1
-      void torchmpi_set_num_buffers_per_gpu_collective(int n); // default 1
-      int torchmpi_get_num_buffers_per_cpu_collective();
-      int torchmpi_get_num_buffers_per_gpu_collective();
+      void torchmpi_set_min_buffer_size_per_cpu_collective(int n); // default (1 << 17)
+      void torchmpi_set_min_buffer_size_per_gpu_collective(int n); // default (1 << 17)
+      void torchmpi_set_max_buffer_size_per_cpu_collective(int n); // default (1 << 22)
+      void torchmpi_set_max_buffer_size_per_gpu_collective(int n); // default (1 << 22)
+      void torchmpi_set_broadcast_size_cpu_tree_based(int n); // default 1 << 22
+      void torchmpi_set_broadcast_size_gpu_tree_based(int n); // default 1 << 22
+      int torchmpi_get_small_cpu_broadcast_size();       // default 1 << 13
+      int torchmpi_get_small_cpu_allreduce_size();       // default 1 << 16
+      int torchmpi_get_small_gpu_broadcast_size();       // default 1 << 13
+      int torchmpi_get_small_gpu_allreduce_size();       // default 1 << 16
+      int torchmpi_get_min_buffer_size_per_cpu_collective();     // default (1 << 17)
+      int torchmpi_get_min_buffer_size_per_gpu_collective();     // default (1 << 17)
+      int torchmpi_get_max_buffer_size_per_cpu_collective();     // default (1 << 22)
+      int torchmpi_get_max_buffer_size_per_gpu_collective();     // default (1 << 22)
+      int torchmpi_get_broadcast_size_cpu_tree_based(); // default 1 << 22
+      int torchmpi_get_broadcast_size_gpu_tree_based(); // default 1 << 22
+      void torchmpi_set_num_buffers_per_cpu_collective(int n);   // default 1
+      void torchmpi_set_num_buffers_per_gpu_collective(int n);   // default 1
+      int torchmpi_get_num_buffers_per_cpu_collective();         // default 1
+      int torchmpi_get_num_buffers_per_gpu_collective();         // default 1
       void torchmpi_set_collective_num_threads(int n);           // default 4
       void torchmpi_set_collective_thread_pool_size(int n);      // default 1 << 20
       void torchmpi_set_parameterserver_num_threads(int n);      // default 4
       void torchmpi_set_parameterserver_thread_pool_size(int n); // default 1 << 20
-      int torchmpi_get_collective_num_threads();
-      int torchmpi_get_collective_thread_pool_size();
-      int torchmpi_get_parameterserver_num_threads();
-      int torchmpi_get_parameterserver_thread_pool_size();
+      int torchmpi_get_collective_num_threads();                 // default 4
+      int torchmpi_get_collective_thread_pool_size();            // default 1 << 20
+      int torchmpi_get_parameterserver_num_threads();            // default 4
+      int torchmpi_get_parameterserver_thread_pool_size();       // default 1 << 20
       SynchronizationHandle* torchmpi_synchronize_handle(SynchronizationHandle* h);
       void torchmpi_barrier();
       void customBarrier();

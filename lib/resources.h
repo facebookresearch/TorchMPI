@@ -49,6 +49,7 @@ constexpr size_t kDefaultTag = 0;
 // Need to distinguish between the two because clients should only
 // talk to servers or pain will ensue.
 constexpr size_t kServerChunkTag =
+  1000 + // Just add some slack
   constants::kMaxNumBuffersPerCollectiveCPU +
   constants::kMaxNumBuffersPerCollectiveGPU + 1;
 constexpr size_t kClientChunkTag = kServerChunkTag + 1;
@@ -155,7 +156,7 @@ struct CommunicatorKey {
 
   CommunicatorKey();
   CommunicatorKey(const CommunicatorKey& other);
-  CommunicatorKey& operator=(CommunicatorKey& other);
+  CommunicatorKey& operator=(const CommunicatorKey& other);
   static CommunicatorKey fromString(std::string s);
 };
 
@@ -164,6 +165,7 @@ struct CommunicatorKey {
 // based on equality of pair<string, parent rank> keys.
 ///////////////////////////////////////////////////////////////////////////////
 struct Communicator {
+  bool cartesian;
   CommunicatorKey key;
 
   MPI::Intracomm interComm;

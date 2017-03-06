@@ -25,26 +25,26 @@ local asyncTimer = torch.Timer()
 
 -------------------------------- reduce --------------------------------
 tests.reduce = {}
-tests.reduce.test = function(t, output)
+tests.reduce.test = function(input, output, firstRun)
    local ns = config.async and mpi.async.nccl or mpi.nccl
 
    if config.async then
       asyncTimer = torch.Timer()
    end
 
-   local ok, res = pcall(ns.reduceTensor, 0, t, output)
+   local ok, res = pcall(ns.reduceTensor, 0, input, output)
 
    if not ok then
       assert(res:find('NYI:'))
       return 'NYI'
    end
 
-   if config.async then
+   if config.async and not firstRun then
       asyncTimer:stop()
       if asyncTimer:time().real >= 5e-5 then
          print(string.format(
             'Warning: Async broadcast launch took %f (expected < %f) for size %d',
-            asyncTimer:time().real, 5e-5, t:nElement()))
+            asyncTimer:time().real, 5e-5, input:nElement()))
       end
    end
 
@@ -52,13 +52,13 @@ tests.reduce.test = function(t, output)
 end
 
 -- Assumes a pipelined implementation of reduce
-tests.reduce.communicationVolumeGB = function(t)
+tests.reduce.communicationVolumeGB = function(input)
    local elemSize = 4
-   return (t:nElement() * elemSize) / 1e9
+   return (input:nElement() * elemSize) / 1e9
 end
 
 -- Careful, precision counts here once we reach a certain size
-tests.reduce.check = function(t, output)
+tests.reduce.check = function(input, output)
    local tocheck = output
    -- 0-based
    local val = (mpi.size() * (mpi.size() - 1)) / 2
@@ -74,21 +74,21 @@ end
 
 -------------------------------- allreduce --------------------------------
 tests.allreduce = {}
-tests.allreduce.test = function(t, output)
+tests.allreduce.test = function(input, output, firstRun)
    local ns = config.async and mpi.async.nccl or mpi.nccl
 
    if config.async then
       asyncTimer = torch.Timer()
    end
 
-   local res = ns.allreduceTensor(t, output)
+   local res = ns.allreduceTensor(input, output)
 
-   if config.async then
+   if config.async and not firstRun then
       asyncTimer:stop()
       if asyncTimer:time().real >= 5e-5 then
          print(string.format(
             'Warning: Async broadcast launch took %f (expected < %f) for size %d',
-            asyncTimer:time().real, 5e-5, t:nElement()))
+            asyncTimer:time().real, 5e-5, input:nElement()))
       end
    end
 
@@ -97,12 +97,12 @@ end
 
 -- Assumes a chunked-ring-based implementation of allreduce
 -- (i.e. 1 roundtrip of the whole data through slowest wire to saturate BW)
-tests.allreduce.communicationVolumeGB = function(t)
+tests.allreduce.communicationVolumeGB = function(input)
    local elemSize = 4
-   return (2 * t:nElement() * elemSize * (mpi.size() - 1) / mpi.size()) / 1e9
+   return (2 * input:nElement() * elemSize * (mpi.size() - 1) / mpi.size()) / 1e9
 end
 
-tests.allreduce.check = function(t, output)
+tests.allreduce.check = function(input, output)
    local tocheck = output
    -- 0-based
    local val = (mpi.size() * (mpi.size() - 1)) / 2
@@ -115,26 +115,26 @@ end
 
 -------------------------------- broadcast --------------------------------
 tests.broadcast = {}
-tests.broadcast.test = function(t)
+tests.broadcast.test = function(input, output, firstRun)
    local ns = config.async and mpi.async.nccl or mpi.nccl
 
    if config.async then
       asyncTimer = torch.Timer()
    end
 
-   local ok, res = pcall(ns.broadcastTensor, mpi.size() - 1, t)
+   local ok, res = pcall(ns.broadcastTensor, mpi.size() - 1, input)
 
    if not ok then
       assert(res:find('NYI:'))
       return 'NYI'
    end
 
-   if config.async then
+   if config.async and not firstRun then
       asyncTimer:stop()
       if asyncTimer:time().real >= 5e-5 then
          print(string.format(
             'Warning: Async broadcast launch took %f (expected < %f) for size %d',
-            asyncTimer:time().real, 5e-5, t:nElement()))
+            asyncTimer:time().real, 5e-5, input:nElement()))
       end
    end
 
@@ -142,16 +142,16 @@ tests.broadcast.test = function(t)
 end
 
 -- Assumes a pipelined implementation of broadcast
-tests.broadcast.communicationVolumeGB = function(t)
+tests.broadcast.communicationVolumeGB = function(input)
    local elemSize = 4
-   return (t:nElement() * elemSize) / 1e9
+   return (input:nElement() * elemSize) / 1e9
 end
 
 -- Careful, precision counts here once we reach a certain size
-tests.broadcast.check = function(t)
+tests.broadcast.check = function(input)
    -- 0-based
    local val = mpi.size() - 1
-   local min, max = t:min(), t:max()
+   local min, max = input:min(), input:max()
    -- Careful, precision counts here once we reach a certain size
    assert(min == val, tostring(min) .. ' VS expected ' .. tostring(val))
    assert(max == val, tostring(max) .. ' VS expected ' .. tostring(val))

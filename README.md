@@ -1,11 +1,15 @@
 # TorchMPI
 
-## Local install (tested on MacOS and Ubuntu @ DockerHub: nicolasvasilache/torchmpi-devel)
+## Local install
 
-Please first check dependencies you need:
+Tested Ubuntu @ DockerHub: nicolasvasilache/torchmpi-rdma-devel
+
+Please first check dependences you need:
   - [CUDA Toolkit](https://developer.nvidia.com/cuda-zone) if you need CUDA
   - [cutorch](https://github.com/torch/cutorch) also mandatory if you need CUDA
   - [NCCL](https://github.com/NVIDIA/nccl) for faster collectives with CUDA (optional)
+
+For other dependences, see dependences/README.md
 
 If CUDA and cutorch are not found, the installation will install the
 CPU-only version.

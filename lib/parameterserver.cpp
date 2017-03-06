@@ -379,7 +379,7 @@ struct DistributedParameterServer {
                        "post client Send trigger to",
                        thisParameterServerTag(resources::kTriggerServerSendShardTag));
           // Ignore the status, we'll wait on the Irecv thanks to transitive
-          // dependencies via the server thread.
+          // dependences via the server thread.
           comm_->comm->intraComm.Send(&trigger,
                       1,
                       MPI_CHAR,
@@ -519,7 +519,7 @@ struct DistributedParameterServer {
         // 2. Perform the send requested with the signal
         // Do a synchronous send because we need to be sure the send
         // completed before we can modify the underlying buffer
-        // (WAW and WAR dependencies).
+        // (WAW and WAR dependences).
         comm_->comm->intraComm.Send(localShard_,
                     shardSize_,
                     mpiTypeFromEnumType(enumType_),

@@ -22,8 +22,8 @@ namespace torch { namespace mpi {
   // Collectives operating on scalars, this is latency-bound.
   /////////////////////////////////////////////////////////////////////////////
   template<typename T>
-  void broadcastScalar(T& val, int src) {
-    mpi::getMainThreadCommunicator().intraComm.Bcast(&val, 1, mpiType<T>(), src);
+  void broadcastScalar(T& val, int root) {
+    mpi::getMainThreadCommunicator().intraComm.Bcast(&val, 1, mpiType<T>(), root);
   }
 
   template<typename T>
@@ -39,9 +39,9 @@ namespace torch { namespace mpi {
   }
 
   template<typename T> void sendreceiveScalar(
-      T& input, int src, int dst) {
+      T& input, int root, int dst) {
     mpi::getMainThreadCommunicator().intraComm.Sendrecv_replace(
-      &input, 1, mpiType<T>(), dst, kDefaultTag, src, kDefaultTag);
+      &input, 1, mpiType<T>(), dst, kDefaultTag, root, kDefaultTag);
   }
 
 namespace th {
@@ -95,10 +95,18 @@ namespace th {
     releaseCollectiveResources(const_cast<CollectiveResources*>(r));
   }
 
+  template<typename ScalarType>
+  void broadcastImpl(ScalarType* tensor,
+                     size_t root,
+                     size_t nElement,
+                     const CollectiveResources* r) {
+    r->comm->intraComm.Bcast(tensor, nElement, mpiType<ScalarType>(), root);
+  }
+
   template<typename ScalarType, typename THTensorType>
-  void broadcast(THTensorType* tensor, int src) {
+  void broadcast(THTensorType* tensor, int root) {
     PREPARE(tensor);
-    r->comm->intraComm.Bcast(tensorData, nElement, mpiType<ScalarType>(), src);
+    broadcastImpl<ScalarType>(tensorData, root, nElement, r);
     // TODO: ScopeGuard
     releaseCollectiveResources(const_cast<CollectiveResources*>(r));
   }
@@ -160,6 +168,22 @@ namespace th {
   }
 
   template<typename ScalarType, typename THTensorType>
+  void broadcastp2p(THTensorType* tensor, int root) {
+    PREPARE(tensor);
+
+    if (nElement <= constants::kSmallBcastSizeCPU) {
+      // Go through CPU
+      broadcastImpl(tensorData, root, nElement, r);
+    } else {
+      detail::broadcastp2p<ScalarType>(
+        tensorData, root, nElement, r->comm->intraComm);
+    }
+
+    // TODO: ScopeGuard
+    releaseCollectiveResources(const_cast<CollectiveResources*>(r));
+  }
+
+  template<typename ScalarType, typename THTensorType>
   void allreducep2p(THTensorType* input,
                     THTensorType* output,
                     MPI::Op mpiRedOp) {
@@ -179,7 +203,7 @@ namespace th {
 
   /* Asynchronous CPU-side collectives */
   template<typename ScalarType, typename THTensorType>
-  SynchronizationHandle* broadcastAsync(THTensorType* tensor, int src)
+  SynchronizationHandle* broadcastAsync(THTensorType* tensor, int root)
   {
     PREPARE(tensor);
 
@@ -187,7 +211,7 @@ namespace th {
     MPI_Ibcast(tensorData,
                nElement,
                mpiType<ScalarType>(),
-               src,
+               root,
                r->comm->intraComm,
                &req);
 
@@ -196,6 +220,29 @@ namespace th {
 
     return resources::synchronizationHandleFromMPIRequest(
       enqueueMPIRequest(MPI::Request(req)));
+  }
+
+  /* Asynchronous CPU-side collectives */
+  template<typename ScalarType, typename THTensorType>
+  SynchronizationHandle* broadcastp2pAsync(THTensorType* tensor, int root)
+  {
+    PREPARE(tensor);
+
+    auto& futures = getCollectiveFutures();
+    futures.push_back(
+      collectiveOffloadThreadPool().enqueue([=](){
+          if (nElement <= constants::kSmallBcastSizeCPU) {
+            // Go through CPU
+            broadcastImpl(tensorData, root, nElement, r);
+          } else {
+            detail::broadcastp2p<ScalarType>(
+              tensorData, root, nElement, r->comm->intraComm);
+          }
+          // TODO: ScopeGuard
+          releaseCollectiveResources(const_cast<CollectiveResources*>(r));
+    }));
+
+    return resources::synchronizationHandleFromFuture(futures.size() - 1);
   }
 
   template<typename ScalarType, typename THTensorType>
@@ -299,27 +346,42 @@ namespace th {
 extern "C" {
 
 /*********************** Broadcast ************************************/
-#define DEFINE_BROADCAST_SCALAR(ElemType)      \
+#define DEFINE_BROADCAST_SCALAR(ElemType)               \
   ElemType PPCAT(torchmpi_broadcast_, ElemType) (       \
-    ElemType val, int src) {                            \
-    torch::mpi::broadcastScalar(val, src);     \
+    ElemType val, int root) {                           \
+    torch::mpi::broadcastScalar(val, root);             \
     return val;                                         \
   }
 
-#define DEFINE_BROADCAST(ScalarType, THTensorType)                \
-  void                                                                     \
-  PPCAT(torchmpi_broadcast_, THTensorType)(THTensorType *input, int src) { \
-    torch::mpi::th::broadcast<ScalarType, THTensorType>(                   \
-      input, src);                                                \
+#define DEFINE_BROADCAST(ScalarType, THTensorType)              \
+  void PPCAT(torchmpi_broadcast_, THTensorType)(                \
+    THTensorType *input, int root) {                            \
+    torch::mpi::th::broadcast<ScalarType, THTensorType>(        \
+      input, root);                                             \
   }
 
-#define DEFINE_BROADCAST_ASYNC(ScalarType, THTensorType)       \
+#define DEFINE_BROADCASTP2P(ScalarType, THTensorType)           \
+  void PPCAT(torchmpi_p2p_broadcast_, THTensorType)(            \
+    THTensorType *input, int root) {                            \
+    torch::mpi::th::broadcastp2p<ScalarType, THTensorType>(     \
+      input, root);                                             \
+  }
+
+#define DEFINE_BROADCAST_ASYNC(ScalarType, THTensorType)                \
   SynchronizationHandle*                                                \
   PPCAT(torchmpi_async_broadcast_, THTensorType)(THTensorType *input,   \
-                                                 int src)               \
+                                                 int root)              \
   {                                                                     \
     return torch::mpi::th::broadcastAsync<ScalarType, THTensorType>(    \
-      input, src);                                             \
+      input, root);                                                     \
+  }
+
+#define DEFINE_BROADCASTP2P_ASYNC(ScalarType, THTensorType)                \
+SynchronizationHandle* PPCAT(torchmpi_async_p2p_broadcast_, THTensorType)( \
+    THTensorType *input, int root)                                         \
+  {                                                                        \
+    return torch::mpi::th::broadcastp2pAsync<ScalarType, THTensorType>(    \
+      input, root);                                                        \
   }
 
 /*********************** Reduce ************************************/
@@ -406,15 +468,17 @@ extern "C" {
   DEFINE_SENDRECEIVE_SCALAR(CPP_TYPE);                                  \
                                                                         \
   DEFINE_BROADCAST(CPP_TYPE, TH_TENSOR_TYPE);                           \
+  DEFINE_BROADCASTP2P(CPP_TYPE, TH_TENSOR_TYPE);                        \
   DEFINE_REDUCE(CPP_TYPE, TH_TENSOR_TYPE);                              \
   DEFINE_ALLREDUCE(CPP_TYPE, TH_TENSOR_TYPE);                           \
   DEFINE_ALLREDUCEP2P(CPP_TYPE, TH_TENSOR_TYPE);                        \
   DEFINE_SENDRECEIVE(CPP_TYPE, TH_TENSOR_TYPE);                         \
                                                                         \
   DEFINE_BROADCAST_ASYNC(CPP_TYPE, TH_TENSOR_TYPE);                     \
+  DEFINE_BROADCASTP2P_ASYNC(CPP_TYPE, TH_TENSOR_TYPE);                  \
   DEFINE_REDUCE_ASYNC(CPP_TYPE, TH_TENSOR_TYPE);                        \
-  DEFINE_ALLREDUCEP2P_ASYNC(CPP_TYPE, TH_TENSOR_TYPE);                  \
-  DEFINE_ALLREDUCE_ASYNC(CPP_TYPE, TH_TENSOR_TYPE);
+  DEFINE_ALLREDUCE_ASYNC(CPP_TYPE, TH_TENSOR_TYPE);                     \
+  DEFINE_ALLREDUCEP2P_ASYNC(CPP_TYPE, TH_TENSOR_TYPE);
 
 #include "generic/torch_collectives_wrappers.cpp.in"
 
