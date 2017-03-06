@@ -1,3 +1,11 @@
+--[[
+ Copyright (c) 2016-present, Facebook, Inc.
+ All rights reserved.
+
+ This source code is licensed under the BSD-style license found in the
+ LICENSE file in the root directory of this source tree. An additional grant
+ of patent rights can be found in the PATENTS file in the same directory.
+--]]
 require('nn')
 require('paths')
 
@@ -11,6 +19,8 @@ cmd:option('-prefetch', 5, 'prefetch distance for asynchronous communications')
 cmd:option('-tau', 10, 'communication cycle length for parameterserver (see easgd paper, we reuse the notation)')
 cmd:option('-tauInitDelay', 20, 'delay the first communication to let the networks search a bit independently')
 cmd:option('-tauSendFrequency', 1, 'frequency at which we perform async sends')
+cmd:option('-beta', 0.9, 'see EASGD paper')
+cmd:option('-momentum', 0.9, 'see EASGD paper')
 
 local config = cmd:parse(arg)
 print(string.format('running on %s', config.usegpu and 'GPU' or 'CPU'))
@@ -38,7 +48,6 @@ engine.hooks.onStartEpoch = function(state)
    meter:reset()
    clerr:reset()
 end
-
 engine.hooks.onForwardCriterion = function(state)
    meter:add(state.criterion.output)
    clerr:add(state.network.output, state.sample.target)
@@ -59,34 +68,62 @@ local handlesPrefetch = {}
 engine.hooks.onBackward = function(state)
    assert(nextPrefetch >= state.t)    -- skipped a beat ..
    assert(nextIntegration >= state.t) -- skipped a beat ..
+   -- 1. When it is time, init the EASGD parameter server
    if state.t == initParameterServer then
       local p, g  = state.network:parameters()
       parameterserver.initTensors(p)
    end
+
+   -- 2. If it is time to prefetch, do it
    if state.t == nextPrefetch then
+      handlesSend = parameterserver.syncHandles(handlesSend)
       local p, g  = state.network:parameters()
       handlesPrefetch = parameterserver.prefetchTensors(p)
       nextPrefetch = nextPrefetch + config.tau
    end
+
+   -- 3. Integrate the prefetched tensors
    if state.t == nextIntegration then
       -- Make sure prefetches completed, you can also play with disabling this
       handlesPrefetch = parameterserver.syncHandles(handlesPrefetch)
       local p, g  = state.network:parameters()
-      parameterserver.integrateTensors(p,
-                                       function(pref, t) t:copy(pref) end)
+      parameterserver.integrateTensors(
+         p,
+         function(pref, t)
+            local alpha = config.beta / mpi.size()
+            -- EASGD needs an extra copy of parameters to save the old values before integration
+            cache.extraTensorReferences[t] = cache.extraTensorReferences[t] or t:clone()
+            local old = cache.extraTensorReferences[t]
+            old:copy(t):add(-pref)
+            t:add(-alpha, old)
+            old:mul(alpha)
+            -- Just send immediately asynchronously
+            table.insert(handlesSend,
+                         parameterserver.send(cache.parameterServers[t], old, 'add'))
+         end
+      )
       nextIntegration = nextIntegration + config.tau
    end
-   if state.t == nextSend then
-      local p, g  = state.network:parameters()
-      handlesSend = parameterserver.sendTensors(
-         p,
-         g,
-         'add',
-         function(t) t:mul(-state.lr); return t end)
-      handlesSend = parameterserver.syncHandles(handlesSend)
-      nextSend = nextSend + config.tauSendFrequency
+
+   -- 4. Perform SGD step with momentum
+   local w, gw = state.network:parameters()
+   for i = 1, #w do
+      local p, g = w[i], gw[i]
+      if not config.momentum or config.momentum == 0 then
+         p:add(-state.lr, g)
+      else
+         -- Nesterov's accelerated gradient rewritten as in Bengio's
+         -- http://arxiv.org/pdf/1212.0901.pdf
+         -- Note that originally cache.momentumTensorReferences[p] = 0
+         cache.momentumTensorReferences[p] = cache.momentumTensorReferences[p] or
+            p:clone():zero()
+         p:add(config.momentum * config.momentum, cache.momentumTensorReferences[p])
+            :add( -(1 + config.momentum) * state.lr, g)
+         cache.momentumTensorReferences[p]:mul(config.momentum):add(-state.lr, g)
+      end
    end
-   -- Disable torchnet.engine SGD step, downpour already took care of it
+
+   -- 5. Disable torchnet.engine SGD step, we already took care of it
    -- TODO: do this better
    state.lrSave = state.lr
    state.lr = 0
