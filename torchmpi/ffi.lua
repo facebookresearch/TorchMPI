@@ -14,6 +14,8 @@ local function declMPI(withCuda)
       broadcast_def = broadcast_def .. [[
          void torchmpi_broadcast_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src);
          SynchronizationHandle* torchmpi_async_broadcast_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src);
+         void torchmpi_p2p_broadcast_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src);
+         SynchronizationHandle* torchmpi_async_p2p_broadcast_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src);
       ]]
       reduce_def = reduce_def .. [[
          void torchmpi_reduce_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, TH]] .. v .. [[Tensor* output, int dst);
@@ -144,6 +146,8 @@ local function declMPI(withCuda)
       void torchmpi_set_min_buffer_size_per_gpu_collective(int n); // default (1 << 17)
       void torchmpi_set_max_buffer_size_per_cpu_collective(int n); // default (1 << 22)
       void torchmpi_set_max_buffer_size_per_gpu_collective(int n); // default (1 << 22)
+      void torchmpi_set_broadcast_size_cpu_tree_based(int n); // default 1 << 22
+      void torchmpi_set_broadcast_size_gpu_tree_based(int n); // default 1 << 22
       int torchmpi_get_small_cpu_broadcast_size();       // default 1 << 13
       int torchmpi_get_small_cpu_allreduce_size();       // default 1 << 16
       int torchmpi_get_small_gpu_broadcast_size();       // default 1 << 13
@@ -152,6 +156,8 @@ local function declMPI(withCuda)
       int torchmpi_get_min_buffer_size_per_gpu_collective();     // default (1 << 17)
       int torchmpi_get_max_buffer_size_per_cpu_collective();     // default (1 << 22)
       int torchmpi_get_max_buffer_size_per_gpu_collective();     // default (1 << 22)
+      int torchmpi_get_broadcast_size_cpu_tree_based(); // default 1 << 22
+      int torchmpi_get_broadcast_size_gpu_tree_based(); // default 1 << 22
       void torchmpi_set_num_buffers_per_cpu_collective(int n);   // default 1
       void torchmpi_set_num_buffers_per_gpu_collective(int n);   // default 1
       int torchmpi_get_num_buffers_per_cpu_collective();         // default 1

@@ -22,9 +22,14 @@ if false then
    mpi.C.torchmpi_set_hierarchical_collectives()
    -- mpi.C.torchmpi_set_staged_collectives()
    mpi.C.torchmpi_set_direct_collectives()
+   mpi.C.torchmpi_set_num_buffers_per_cpu_collective(4)
    mpi.C.torchmpi_set_num_buffers_per_gpu_collective(4)
+   mpi.C.torchmpi_set_min_buffer_size_per_cpu_collective(2^10)
+   mpi.C.torchmpi_set_max_buffer_size_per_cpu_collective(2^20)
    mpi.C.torchmpi_set_min_buffer_size_per_gpu_collective(2^10)
    mpi.C.torchmpi_set_max_buffer_size_per_gpu_collective(2^20)
+   mpi.C.torchmpi_set_broadcast_size_cpu_tree_based(2^22)
+   mpi.C.torchmpi_set_broadcast_size_gpu_tree_based(2^22)
 end
 
 local mpicache = require('torchmpi.cache')

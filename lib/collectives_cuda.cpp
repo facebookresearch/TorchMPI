@@ -21,7 +21,7 @@ namespace torch { namespace mpi { namespace thc {
 #define PREPARE(state, tensor)                                          \
   THCudaCheck(cudaGetLastError());                                      \
   if (!torch::thc::isContiguous(state, tensor)) {                       \
-    THError("NYI: Sendrecv_replace only supported for contig tensors"); \
+    THError("NYI: Collective only supported for contig tensors");       \
   }                                                                     \
   int device;                                                           \
   THCudaCheck(cudaGetDevice(&device));                                  \
@@ -60,7 +60,7 @@ namespace torch { namespace mpi { namespace thc {
 #define PREPARE2(state, input, output)                                  \
   THCudaCheck(cudaGetLastError());                                      \
   if (!torch::thc::isContiguous(state, input)) {                        \
-    THError("NYI: Reduce only supported for contig tensors");           \
+    THError("NYI: Collective only supported for contig tensors");       \
   }                                                                     \
   torch::mpi::thc::retainStorage(state, input);                         \
   if (input != output) {                                                \
@@ -300,11 +300,15 @@ void broadcastp2p(THCState* state,
 
   PREPARE_IPC(state, tensor);
   if (hasInter) {
+    // Release before calling!
     // TODO: ScopeGuard
     releaseCollectiveResources(const_cast<CollectiveResources*>(rInner));
     releaseCollectiveResources(const_cast<CollectiveResources*>(rOuter));
-    THError("NYI: Multi-node/IPC domain P2P broadcast not yet supported, " \
-            "use the stock MPI broadcast");
+    // For hierarchical broadcasts, participants need to agree on the root
+    // value for different communicators. We don't have that yet so just
+    // default to the mpi broadcast.
+    thc::broadcast<ScalarType>(state, tensor, root);
+    return;
   }
   auto sh = broadcastp2pIPCImpl<ScalarType>(tensorData,
                                             root,
@@ -616,11 +620,15 @@ SynchronizationHandle* broadcastp2pAsync(THCState* state,
 
   PREPARE_IPC(state, tensor);
   if (hasInter) {
+    // Release before calling!
     // TODO: ScopeGuard
     releaseCollectiveResources(const_cast<CollectiveResources*>(rInner));
     releaseCollectiveResources(const_cast<CollectiveResources*>(rOuter));
-    THError("NYI: Multi-node/IPC domain broadcast not yet supported, "  \
-            "use the stock MPI broadcast");
+    // For hierarchical broadcasts, participants need to agree on the root
+    // value for different communicators. We don't have that yet so just
+    // default to the mpi broadcast.
+    auto res = thc::broadcastAsync<ScalarType>(state, tensor, root);
+    return res;
   }
   // broadcastp2pIPCAsyncImpl must release rInner!!
   releaseCollectiveResources(const_cast<CollectiveResources*>(rOuter));

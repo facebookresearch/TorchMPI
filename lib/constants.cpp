@@ -65,10 +65,12 @@ int kSmallAllreduceSizeGPU = 1 << 16;
 int kSmallBcastSizeCPU = 1 << 13;
 int kSmallAllreduceSizeCPU = 1 << 16;
 
-int kMinGPUBufferSize = 1 << 17;
-int kMaxGPUBufferSize = 1 << 22;
-int kMinCPUBufferSize = 1 << 17;
-int kMaxCPUBufferSize = 1 << 22;
+int kMinBufferSizeGPU = 1 << 17;
+int kMaxBufferSizeGPU = 1 << 22;
+int kMinBufferSizeCPU = 1 << 17;
+int kMaxBufferSizeCPU = 1 << 22;
+int kBcastSizeTreeBasedCPU = 1 << 22;
+int kBcastSizeTreeBasedGPU = 1 << 22;
 
 int kNumBuffersPerCollectiveCPU = 1;
 int kNumBuffersPerCollectiveGPU = 1;
@@ -136,25 +138,37 @@ extern "C" {
     if (immutableConstants) {
       THError("Communications related constants are immutable after initialization");
     }
-    kMinCPUBufferSize = n;
+    kMinBufferSizeCPU = n;
   }
   void torchmpi_set_min_buffer_size_per_gpu_collective(int n) {
     if (immutableConstants) {
       THError("Communications related constants are immutable after initialization");
     }
-    kMinGPUBufferSize = n;
+    kMinBufferSizeGPU = n;
   }
   void torchmpi_set_max_buffer_size_per_cpu_collective(int n) {
     if (immutableConstants) {
       THError("Communications related constants are immutable after initialization");
     }
-    kMaxCPUBufferSize = n;
+    kMaxBufferSizeCPU = n;
+  }
+  void torchmpi_set_broadcast_size_cpu_tree_based(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kBcastSizeTreeBasedCPU = n;
+  }
+  void torchmpi_set_broadcast_size_gpu_tree_based(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kBcastSizeTreeBasedGPU = n;
   }
   void torchmpi_set_max_buffer_size_per_gpu_collective(int n) {
     if (immutableConstants) {
       THError("Communications related constants are immutable after initialization");
     }
-    kMaxGPUBufferSize = n;
+    kMaxBufferSizeGPU = n;
   }
   void torchmpi_set_num_buffers_per_cpu_collective(int n) {
     if (immutableConstants) {
@@ -212,16 +226,22 @@ extern "C" {
     return kSmallAllreduceSizeGPU;
   }
   int torchmpi_get_min_buffer_size_per_cpu_collective() {
-    return kMinCPUBufferSize;
+    return kMinBufferSizeCPU;
   }
   int torchmpi_get_min_buffer_size_per_gpu_collective() {
-    return kMinGPUBufferSize;
+    return kMinBufferSizeGPU;
   }
   int torchmpi_get_max_buffer_size_per_cpu_collective() {
-    return kMaxCPUBufferSize;
+    return kMaxBufferSizeCPU;
+  }
+  int torchmpi_get_broadcast_size_cpu_tree_based() {
+    return kBcastSizeTreeBasedCPU;
+  }
+  int torchmpi_get_broadcast_size_gpu_tree_based() {
+    return kBcastSizeTreeBasedGPU;
   }
   int torchmpi_get_max_buffer_size_per_gpu_collective() {
-    return kMaxGPUBufferSize;
+    return kMaxBufferSizeGPU;
   }
   int torchmpi_get_num_buffers_per_cpu_collective() {
     return kNumBuffersPerCollectiveCPU;

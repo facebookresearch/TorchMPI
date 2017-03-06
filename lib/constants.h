@@ -32,15 +32,18 @@ extern int kSmallAllreduceSizeGPU;
 
 // Min transfer size to reaming in a nice latency regime (131K matches the
 // default OpenMPI transfer size)
-extern int kMinGPUBufferSize;
+extern int kMinBufferSizeGPU;
 // 4MB max per buffer per thread
-extern int kMaxGPUBufferSize;
+extern int kMaxBufferSizeGPU;
 
 // Min transfer size to reaming in a nice latency regime (131K matches the
 // default OpenMPI transfer size)
-extern int kMinCPUBufferSize;
+extern int kMinBufferSizeCPU;
 // 4MB max per buffer per thread
-extern int kMaxCPUBufferSize;
+extern int kMaxBufferSizeCPU;
+// Switch broadcast from tree to pipeline
+extern int kBcastSizeTreeBasedCPU;
+extern int kBcastSizeTreeBasedGPU;
 
 extern int kNumBuffersPerCollectiveCPU;
 extern int kNumBuffersPerCollectiveGPU;

@@ -32,9 +32,6 @@ transferBounds(long chunkIndex, long bufferSize, long vectorLength) {
 
 } // ns anon
 
-// Switch broadcast from tree to pipeline
-constexpr size_t kNElementTreeBased = 1 << 19;
-
 template<typename ScalarType> void broadcastp2pIPC(
     ScalarType* outputData,
     size_t root,
@@ -60,7 +57,7 @@ template<typename ScalarType> void broadcastp2pIPC(
   barrier(comm);
   THCudaCheck(cudaStreamSynchronize(stream));
 
-  if (nElement <= kNElementTreeBased) {
+  if (nElement * sizeof(ScalarType) <= kBcastSizeTreeBasedGPU) {
     // Tree-based
     for (int dist = 1; dist < size; dist = dist * 2) {
       // At each dist, 'dist' ranks are sending from order[0 .. dist] to
@@ -108,7 +105,11 @@ template<typename ScalarType> void broadcastp2pIPC(
     THAssert(myPlace >= 0);
     THAssert(rank == order[myPlace]);
 
-    size_t chunkSize = std::min(kNElementTreeBased, nElement);
+    auto chunkSize = std::max(
+      static_cast<size_t>(kMinBufferSizeGPU),
+      std::min(static_cast<size_t>(kMaxBufferSizeGPU),
+               (nElement + kNumBuffersPerCollectiveGPU * size - 1) /
+               (kNumBuffersPerCollectiveGPU * size)));
     auto rem = (nElement % chunkSize) ? 1 : 0;
     long totalChunks = nElement / chunkSize + rem;
     // Pipeline + pull model
@@ -156,7 +157,7 @@ void* getGPUBuffer(size_t sizeNeeded, size_t bufferIndex) {
   struct Buffers {
     size_t size;
     std::vector<void*> buffers;
-    Buffers(size_t kMaxGPUBufferSize) : size(kMaxGPUBufferSize + kAlign) {
+    Buffers(size_t kMaxBufferSizeGPU) : size(kMaxBufferSizeGPU + kAlign) {
       for (auto i = 0; i < constants::kMaxNumBuffersPerCollectiveGPU; ++i) {
         void* ptr;
         THCudaCheck(cudaMalloc(&ptr, size * sizeof(double)));
@@ -175,7 +176,7 @@ void* getGPUBuffer(size_t sizeNeeded, size_t bufferIndex) {
   lock_guard<mutex> lg(mut);
   auto buf = buffers.find(std::this_thread::get_id());
   if ((buf = buffers.find(std::this_thread::get_id())) == buffers.end()) {
-    buffers.emplace(std::this_thread::get_id(), kMaxGPUBufferSize);
+    buffers.emplace(std::this_thread::get_id(), kMaxBufferSizeGPU);
   }
   buf = buffers.find(std::this_thread::get_id());
   THAssert(buf != buffers.end());
@@ -214,8 +215,8 @@ template<typename ScalarType> void allreducep2pIPC(
   auto nBuffers = copyStreams.size();
   THAssert(nBuffers == ipcEvents.size());
   auto bufferSize = std::min(
-    kMaxGPUBufferSize / sizeof(ScalarType),
-    std::max(kMinGPUBufferSize / sizeof(ScalarType),
+    kMaxBufferSizeGPU / sizeof(ScalarType),
+    std::max(kMinBufferSizeGPU / sizeof(ScalarType),
              (nElement + size * nBuffers - 1) / (size * nBuffers)));
   auto rem = (nElement % bufferSize) ? 1 : 0;
   long totalChunks = nElement / bufferSize + rem;
@@ -398,8 +399,8 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
 
   auto nBuffers = copyStreams.size();
   auto bufferSize = std::min(
-    kMaxGPUBufferSize / sizeof(ScalarType),
-    std::max(kMinGPUBufferSize / sizeof(ScalarType),
+    kMaxBufferSizeGPU / sizeof(ScalarType),
+    std::max(kMinBufferSizeGPU / sizeof(ScalarType),
              (nElement + size * nBuffers - 1) / (size * nBuffers)));
   auto rem = (nElement % bufferSize) ? 1 : 0;
   long totalChunks = nElement / bufferSize + rem;
@@ -695,8 +696,8 @@ template<typename ScalarType> void allreducep2pCrossNodesDirect(
 
   auto nBuffers = copyStreams.size();
   auto bufferSize = std::min(
-    kMaxGPUBufferSize / sizeof(ScalarType),
-    std::max(kMinGPUBufferSize / sizeof(ScalarType),
+    kMaxBufferSizeGPU / sizeof(ScalarType),
+    std::max(kMinBufferSizeGPU / sizeof(ScalarType),
              (nElement + size * nBuffers - 1) / (size * nBuffers)));
   auto rem = (nElement % bufferSize) ? 1 : 0;
   long totalChunks = nElement / bufferSize + rem;

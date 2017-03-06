@@ -49,6 +49,7 @@ constexpr size_t kDefaultTag = 0;
 // Need to distinguish between the two because clients should only
 // talk to servers or pain will ensue.
 constexpr size_t kServerChunkTag =
+  1000 + // Just add some slack
   constants::kMaxNumBuffersPerCollectiveCPU +
   constants::kMaxNumBuffersPerCollectiveGPU + 1;
 constexpr size_t kClientChunkTag = kServerChunkTag + 1;
