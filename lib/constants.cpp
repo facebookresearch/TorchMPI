@@ -73,6 +73,13 @@ int kSmallAllreduceSizeGPU = 1 << 16;
 int kSmallBcastSizeCPU = 1 << 13;
 int kSmallAllreduceSizeCPU = 1 << 16;
 
+int kMinBufferSizeGPU = 1 << 17;
+int kMaxBufferSizeGPU = 1 << 22;
+int kMinBufferSizeCPU = 1 << 17;
+int kMaxBufferSizeCPU = 1 << 22;
+int kBcastSizeTreeBasedCPU = 1 << 22;
+int kBcastSizeTreeBasedGPU = 1 << 22;
+
 int kNumBuffersPerCollectiveCPU = 1;
 int kNumBuffersPerCollectiveGPU = 1;
 
@@ -135,6 +142,42 @@ extern "C" {
     }
     kSmallAllreduceSizeGPU = n;
   }
+  void torchmpi_set_min_buffer_size_per_cpu_collective(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kMinBufferSizeCPU = n;
+  }
+  void torchmpi_set_min_buffer_size_per_gpu_collective(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kMinBufferSizeGPU = n;
+  }
+  void torchmpi_set_max_buffer_size_per_cpu_collective(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kMaxBufferSizeCPU = n;
+  }
+  void torchmpi_set_broadcast_size_cpu_tree_based(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kBcastSizeTreeBasedCPU = n;
+  }
+  void torchmpi_set_broadcast_size_gpu_tree_based(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kBcastSizeTreeBasedGPU = n;
+  }
+  void torchmpi_set_max_buffer_size_per_gpu_collective(int n) {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kMaxBufferSizeGPU = n;
+  }
   void torchmpi_set_num_buffers_per_cpu_collective(int n) {
     if (immutableConstants) {
       THError("Communications related constants are immutable after initialization");
@@ -189,6 +232,24 @@ extern "C" {
   }
   int torchmpi_get_small_gpu_allreduce_size() {
     return kSmallAllreduceSizeGPU;
+  }
+  int torchmpi_get_min_buffer_size_per_cpu_collective() {
+    return kMinBufferSizeCPU;
+  }
+  int torchmpi_get_min_buffer_size_per_gpu_collective() {
+    return kMinBufferSizeGPU;
+  }
+  int torchmpi_get_max_buffer_size_per_cpu_collective() {
+    return kMaxBufferSizeCPU;
+  }
+  int torchmpi_get_broadcast_size_cpu_tree_based() {
+    return kBcastSizeTreeBasedCPU;
+  }
+  int torchmpi_get_broadcast_size_gpu_tree_based() {
+    return kBcastSizeTreeBasedGPU;
+  }
+  int torchmpi_get_max_buffer_size_per_gpu_collective() {
+    return kMaxBufferSizeGPU;
   }
   int torchmpi_get_num_buffers_per_cpu_collective() {
     return kNumBuffersPerCollectiveCPU;

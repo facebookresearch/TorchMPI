@@ -66,9 +66,9 @@ MPI.start = function(withCuda, ipcGroups, customCommunicatorInit)
    if customCommunicatorInit then
       MPI.numCommunicators =
          assert(customCommunicatorInit(),
-            'customCommunicatorInit should return a number of communicators')
+            'customCommunicatorInit should return the communicator hierarchy\'s depth')
       -- Principle of least surprise, if there is a custom communicator
-      -- it is assumed the communicatros for collectives are rooted under it
+      -- it is assumed the communicatrors for collectives are rooted under it
       MPI.C.torchmpi_set_communicator(MPI.numCommunicators)
    end
 
@@ -194,13 +194,9 @@ end
 MPI.p2p = {}
 
 MPI.p2p.broadcastTensor = function(rank, tensor)
-   if torch.type(tensor):find('Cuda') then
-      local fun = 'torchmpi_p2p_broadcast_TH'..
-         torch.type(tensor):gsub('torch.', '')
-      return MPI.syncHandle(wrap.executeMPICFun(fun, tensor, rank))
-   end
-   error("NYI: CPU broadcast P2P")
-   return MPI.syncHandle(MPI.broadcastTensor(rank, tensor))
+   local fun = 'torchmpi_p2p_broadcast_TH'..
+      torch.type(tensor):gsub('torch.', '')
+   return MPI.syncHandle(wrap.executeMPICFun(fun, tensor, rank))
 end
 
 --TODO: Implement if really needed
@@ -226,16 +222,9 @@ MPI.async.p2p = {}
 -- Returns a handle on which to call MPI.syncHandle to ensure the
 -- collective completed
 MPI.async.p2p.broadcastTensor = function(rank, tensor)
-   local handle = nil
-   if torch.type(tensor):find('Cuda') then
-      local fun = 'torchmpi_async_p2p_broadcast_TH'
-         ..torch.type(tensor):gsub('torch.', '')
-      handle = wrap.executeMPICFun(fun, tensor, rank)
-   else
-      error("NYI: CPU async broadcast P2P")
-      handle = MPI.async.broadcastTensor(rank, tensor)
-   end
-   return handle
+   local fun = 'torchmpi_async_p2p_broadcast_TH'
+      ..torch.type(tensor):gsub('torch.', '')
+   return wrap.executeMPICFun(fun, tensor, rank)
 end
 
 -- Returns a handle on which to call MPI.syncHandle to ensure the

@@ -9,8 +9,8 @@
 #include "../collectives.h"
 #include "../resources.h"
 
+#include <algorithm>
 #include <chrono>
-#include <iostream>
 #include <unordered_map>
 #include <thread>
 #include <vector>
@@ -23,6 +23,95 @@ using namespace torch::mpi::constants;
 using namespace torch::mpi::resources;
 
 namespace torch { namespace mpi { namespace th { namespace detail {
+
+template<typename ScalarType> void broadcastp2p(
+    ScalarType* tensorData,
+    size_t root,
+    size_t nElement,
+    const MPI::Intracomm& comm) {
+  auto rank = commRank(comm);
+  auto size = commSize(comm);
+
+  // TODO: Topologies
+  std::vector<int> order(size);
+  for (int i = 0; i < size; ++i) {
+    order[i] = i;
+  }
+  std::sort(order.begin(), order.end(), [&](int i1, int i2) {
+    if (i1 == root) { return true; }
+    return i1 < i2;
+  });
+
+  if (nElement * sizeof(ScalarType) <= kBcastSizeTreeBasedCPU) {
+    // Tree-based
+    std::vector<MPI::Request> reqRecv;
+    for (int dist = 1; dist < size; dist = dist * 2) {
+      THAssert(dist < kServerChunkTag);
+      // At each dist, 'dist' ranks are sending from order[0 .. dist] to
+      // order[dist+1 .. 2*dist]. Use a pull model
+      for (int senderIndex = 0; senderIndex < dist; ++senderIndex) {
+        int receiverIndex = senderIndex + dist;
+        if (receiverIndex < size) {
+          int sender = order[senderIndex];
+          int receiver = order[receiverIndex];
+          THAssert(sender != receiver);
+          if (rank == sender) {
+            comm.Send(
+              tensorData, nElement, mpiType<ScalarType>(), receiver, dist);
+          } else if (rank == receiver) {
+            comm.Recv(
+              tensorData, nElement, mpiType<ScalarType>(), sender, dist);
+          }
+        }
+      }
+    }
+  } else {
+    // Pipeline based
+    int ind = 0, myPlace = -1;
+    for (auto i : order) {
+      if (i == rank) {
+        myPlace = ind;
+        break;
+      }
+      ind++;
+    }
+    THAssert(myPlace >= 0);
+    THAssert(rank == order[myPlace]);
+
+    auto chunkSize = std::max(
+      static_cast<size_t>(kMinBufferSizeCPU),
+      std::min(static_cast<size_t>(kMaxBufferSizeCPU),
+               (nElement + kNumBuffersPerCollectiveCPU * size - 1) /
+               (kNumBuffersPerCollectiveCPU * size)));
+    auto rem = (nElement % chunkSize) ? 1 : 0;
+    long totalChunks = nElement / chunkSize + rem;
+
+    // Pipeline
+    auto prev = (myPlace > 0) ? order[myPlace - 1] : -1;
+    auto next = (myPlace < order.size() - 1) ? order[myPlace + 1] : -1;
+    std::vector<MPI::Request> reqs(totalChunks);
+    for (int chunk = 0; chunk < totalChunks; ++chunk) {
+      size_t chunkStart = chunk * chunkSize;
+      size_t thisSize = std::min(chunkSize, nElement - chunkStart);
+      if (prev >= 0) {
+        reqs[chunk] = comm.Irecv(
+          tensorData + chunkStart, thisSize, mpiType<ScalarType>(), prev, chunk);
+      }
+    }
+    for (int chunk = 0; chunk < totalChunks; ++chunk) {
+      size_t chunkStart = chunk * chunkSize;
+      size_t thisSize = std::min(chunkSize, nElement - chunkStart);
+      if (next >= 0) {
+        reqs[chunk].Wait();
+        reqs[chunk] = comm.Isend(
+          tensorData + chunkStart, thisSize, mpiType<ScalarType>(), next, chunk);
+        reqs[chunk].Wait();
+      }
+    }
+    for (auto& r : reqs) { r.Wait(); }
+  }
+}
+
 
 template<typename ScalarType> void reduce(
   ScalarType* out,
@@ -244,25 +333,34 @@ void allreducep2p(
 
 }}}} // ns torch::mpi::th::detail
 
-// Explicit template instantiations
-template void
-torch::mpi::th::detail::allreducep2p<uint8_t>(
-  const uint8_t*, uint8_t*, size_t nElement, decltype(MPI::Op(MPI_SUM)), const MPI::Intracomm& comm);
-template void
-torch::mpi::th::detail::allreducep2p<char>(
-  const char*, char*, size_t nElement, decltype(MPI::Op(MPI_SUM)), const MPI::Intracomm& comm);
-template void
-torch::mpi::th::detail::allreducep2p<short>(
-  const short*, short*, size_t nElement, decltype(MPI::Op(MPI_SUM)), const MPI::Intracomm& comm);
-template void
-torch::mpi::th::detail::allreducep2p<int>(
-  const int*, int*, size_t nElement, decltype(MPI::Op(MPI_SUM)), const MPI::Intracomm& comm);
-template void
-torch::mpi::th::detail::allreducep2p<long>(
-  const long*, long*, size_t nElement, decltype(MPI::Op(MPI_SUM)), const MPI::Intracomm& comm);
-template void
-torch::mpi::th::detail::allreducep2p<float>(
-  const float*, float*, size_t nElement, decltype(MPI::Op(MPI_SUM)), const MPI::Intracomm& comm);
-template void
-torch::mpi::th::detail::allreducep2p<double>(
-  const double*, double*, size_t nElement, decltype(MPI::Op(MPI_SUM)), const MPI::Intracomm& comm);
+
+#define INSTANTIATE_broadcastp2p(TYPE)                          \
+template void torch::mpi::th::detail::broadcastp2p<TYPE>(       \
+    TYPE* tensorData,                                           \
+    size_t root,                                                \
+    size_t nElement,                                            \
+    const MPI::Intracomm& comm);
+
+INSTANTIATE_broadcastp2p(uint8_t);
+INSTANTIATE_broadcastp2p(char);
+INSTANTIATE_broadcastp2p(short);
+INSTANTIATE_broadcastp2p(int);
+INSTANTIATE_broadcastp2p(long);
+INSTANTIATE_broadcastp2p(float);
+INSTANTIATE_broadcastp2p(double);
+
+#define INSTANTIATE_allreducep2p(TYPE)                          \
+template void torch::mpi::th::detail::allreducep2p<TYPE>(       \
+  const TYPE* inputData,                                        \
+  TYPE* outputData,                                             \
+  size_t nElement,                                              \
+  decltype(MPI::Op(MPI_SUM)) mpiRedOp,                          \
+  const MPI::Intracomm& comm);
+
+INSTANTIATE_allreducep2p(uint8_t);
+INSTANTIATE_allreducep2p(char);
+INSTANTIATE_allreducep2p(short);
+INSTANTIATE_allreducep2p(int);
+INSTANTIATE_allreducep2p(long);
+INSTANTIATE_allreducep2p(float);
+INSTANTIATE_allreducep2p(double);

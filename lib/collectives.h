@@ -23,6 +23,11 @@ template<typename T> void allreduceScalar(T& val, MPI::Op mpiRedOp);
 template<typename T> void sendreceiveScalar(T& t, int src, int dst);
 
 namespace th { namespace detail {
+  template<typename ScalarType> void broadcastp2p(
+    ScalarType* tensorData,
+    size_t root,
+    size_t nElement,
+    const MPI::Intracomm& comm);
 
   template<typename ScalarType> void allreducep2p(
     const ScalarType* inputData,

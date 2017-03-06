@@ -29,7 +29,7 @@ namespace torch { namespace mpi { namespace thc {
 #define PREPARE(state, tensor)                                          \
   THCudaCheck(cudaGetLastError());                                      \
   if (!torch::thc::isContiguous(state, tensor)) {                       \
-    THError("NYI: Sendrecv_replace only supported for contig tensors"); \
+    THError("NYI: Collective only supported for contig tensors");       \
   }                                                                     \
   int device;                                                           \
   THCudaCheck(cudaGetDevice(&device));                                  \
@@ -68,7 +68,7 @@ namespace torch { namespace mpi { namespace thc {
 #define PREPARE2(state, input, output)                                  \
   THCudaCheck(cudaGetLastError());                                      \
   if (!torch::thc::isContiguous(state, input)) {                        \
-    THError("NYI: Reduce only supported for contig tensors");           \
+    THError("NYI: Collective only supported for contig tensors");       \
   }                                                                     \
   torch::mpi::thc::retainStorage(state, input);                         \
   if (input != output) {                                                \
@@ -270,6 +270,8 @@ SynchronizationHandle* broadcastp2pIPCImpl(ScalarType* dataPtr,
       events
     );
   } else {
+    // This will become dead code eventually after we have tested enough
+    THAssert(false);
     // TODO: Would be better to just use stock MPI here but for some reason,
     // I see registration error messages in this particular case
     auto b = SmallPinnedBufferProvider::acquire();
@@ -295,13 +297,26 @@ void broadcastp2p(THCState* state,
                   THTensorType* tensor,
                   int root)
 {
+  {
+    // Latency-bound, better go through stock MPI implementation
+    auto nElement = torch::thc::nElement<THTensorType>(state, tensor);
+    if (nElement <= constants::kSmallBcastSizeGPU) {
+      thc::broadcast<ScalarType>(state, tensor, root);
+      return;
+    }
+  }
+
   PREPARE_IPC(state, tensor);
   if (hasInter) {
+    // Release before calling!
     // TODO: ScopeGuard
     releaseCollectiveResources(const_cast<CollectiveResources*>(rInner));
     releaseCollectiveResources(const_cast<CollectiveResources*>(rOuter));
-    THError("NYI: Multi-node/IPC domain P2P broadcast not yet supported, " \
-            "use the stock MPI broadcast");
+    // For hierarchical broadcasts, participants need to agree on the root
+    // value for different communicators. We don't have that yet so just
+    // default to the mpi broadcast.
+    thc::broadcast<ScalarType>(state, tensor, root);
+    return;
   }
   auto sh = broadcastp2pIPCImpl<ScalarType>(tensorData,
                                             root,
@@ -347,8 +362,8 @@ SynchronizationHandle* allreducep2pIPCImpl(ScalarType* inputData,
       events
     );
   } else {
-    // TODO: Would be better to just use stock MPI here but for some reason,
-    // I see registration error messages in this particular case
+    // This will become dead code eventually after we have tested enough
+    THAssert(false);
     auto b = SmallPinnedBufferProvider::acquire();
     b->copyFrom(inputData, nElement * sizeof(ScalarType), hiPriStream);
     // Must sync to avoid Allreduce too early
@@ -370,45 +385,30 @@ SynchronizationHandle* allreducep2pHierarchicalImpl(
     ScalarType* outputData,
     size_t nElement,
     MPI::Op mpiRedOp,
-    const MPI::Intracomm& ipcComm,
-    const MPI::Intracomm& interIPCComm,
     IPCDesc* ipcDesc,
     size_t offset,
     cudaStream_t stream,
     bool hasIntra,
     bool hasInter,
-    const CollectiveIpcEvents &events)
+    const CollectiveResources* r)
 {
   // Short P2P path
-  if (!hasInter && hasIntra) {
+  if (!hasInter) {
     allreducep2pIPCImpl<ScalarType>(inputData,
                                     outputData,
                                     nElement,
                                     mpiRedOp,
-                                    ipcComm,
+                                    r->comm->intraComm,
                                     ipcDesc,
                                     offset,
                                     stream,
-                                    events);
+                                    r->events);
     // don't sync on stream here
     return synchronizationHandleFromStream(stream);
   }
 
   // If we get here we must go hierarchical
-  if (hasIntra) {
-    allreducep2pIPCImpl<ScalarType>(inputData,
-                                    outputData,
-                                    nElement,
-                                    mpiRedOp,
-                                    ipcComm,
-                                    ipcDesc,
-                                    offset,
-                                    stream,
-                                    events);
-    // don't sync on stream here
-  }
-
-  if (torch::mpi::commSize(interIPCComm) > 1) {
+  if (!hasIntra) {
     auto hiPriStreams = torch::mpi::thc::preSyncHiPriStreams(stream);
     THAssert(hiPriStreams.size() > 0);
     torch::mpi::thc::detail::allreducep2pCrossNodes<ScalarType>(
@@ -416,20 +416,46 @@ SynchronizationHandle* allreducep2pHierarchicalImpl(
       outputData,
       nElement,
       mpiRedOp,
-      interIPCComm,
+      r->comm->interComm,
+      hiPriStreams);
+    torch::mpi::thc::postSyncHiPriStreams(stream);
+    // don't sync on stream here
+    return synchronizationHandleFromStream(stream);
+  }
+
+
+  // Both inter and intr
+  allreducep2pIPCImpl<ScalarType>(inputData,
+                                  outputData,
+                                  nElement,
+                                  mpiRedOp,
+                                  r->comm->intraComm,
+                                  ipcDesc,
+                                  offset,
+                                  stream,
+                                  r->events);
+  if (torch::mpi::commSize(r->comm->interComm) > 1) {
+    auto hiPriStreams = torch::mpi::thc::preSyncHiPriStreams(stream);
+    THAssert(hiPriStreams.size() > 0);
+    torch::mpi::thc::detail::allreducep2pCrossNodes<ScalarType>(
+      hasIntra ? outputData : inputData,
+      outputData,
+      nElement,
+      mpiRedOp,
+      r->comm->interComm,
       hiPriStreams);
     torch::mpi::thc::postSyncHiPriStreams(stream);
     // don't sync on stream here
   }
-  if (hasIntra) {
+  if (!r->comm->cartesian) {
     broadcastp2pIPCImpl(outputData,
                         0,
                         nElement,
-                        ipcComm,
+                        r->comm->intraComm,
                         ipcDesc,
                         offset,
                         stream,
-                        events);
+                        r->events);
     // don't sync on stream here
   }
   return synchronizationHandleFromStream(stream);
@@ -447,14 +473,12 @@ void allreducep2pHierarchical(THCState* state,
                                          outputData,
                                          nElement,
                                          mpiRedOp,
-                                         rInner->comm->intraComm,
-                                         rInner->comm->interComm,
                                          desc,
                                          output->storageOffset,
                                          stream,
                                          hasIntra,
                                          hasInter,
-                                         rInner->events);
+                                         rInner);
   // TODO: ScopeGuard??
   releaseCollectiveResources(const_cast<CollectiveResources*>(rInner));
   releaseCollectiveResources(const_cast<CollectiveResources*>(rOuter));
@@ -495,6 +519,15 @@ void allreducep2p(THCState* state,
                   THTensorType* output,
                   MPI::Op mpiRedOp)
 {
+  {
+    // Latency-bound, better go through stock MPI implementation
+    auto nElement = torch::thc::nElement<THTensorType>(state, input);
+    if (nElement <= constants::kSmallAllreduceSizeGPU) {
+      thc::allreduce<ScalarType>(state, input, output, mpiRedOp);
+      return;
+    }
+  }
+
   if (constants::kUseHierarchicalCollectives) {
     // If we have to go through TCP we cannot rely on cuda support to properly
     // perform CPU-GPU copies asynchronously. Write our own hierarchical
@@ -585,13 +618,25 @@ SynchronizationHandle* broadcastp2pAsync(THCState* state,
                                          THTensorType* tensor,
                                          int root)
 {
+  {
+    // Latency-bound, better go through stock MPI implementation
+    auto nElement = torch::thc::nElement<THTensorType>(state, tensor);
+    if (nElement <= constants::kSmallBcastSizeGPU) {
+      return thc::broadcastAsync<ScalarType>(state, tensor, root);
+    }
+  }
+
   PREPARE_IPC(state, tensor);
   if (hasInter) {
+    // Release before calling!
     // TODO: ScopeGuard
     releaseCollectiveResources(const_cast<CollectiveResources*>(rInner));
     releaseCollectiveResources(const_cast<CollectiveResources*>(rOuter));
-    THError("NYI: Multi-node/IPC domain broadcast not yet supported, "  \
-            "use the stock MPI broadcast");
+    // For hierarchical broadcasts, participants need to agree on the root
+    // value for different communicators. We don't have that yet so just
+    // default to the mpi broadcast.
+    auto res = thc::broadcastAsync<ScalarType>(state, tensor, root);
+    return res;
   }
   // broadcastp2pIPCAsyncImpl must release rInner!!
   releaseCollectiveResources(const_cast<CollectiveResources*>(rOuter));
@@ -621,14 +666,12 @@ SynchronizationHandle* allreducep2pAsyncHierarchical(
                                              outputData,
                                              nElement,
                                              mpiRedOp,
-                                             rInner->comm->intraComm,
-                                             rInner->comm->interComm,
                                              desc,
                                              output->storageOffset,
                                              stream,
                                              hasIntra,
                                              hasInter,
-                                             rInner->events);
+                                             rInner);
       // Must sync on stream here
       resources::wait(sh);
 
@@ -679,6 +722,14 @@ template<typename ScalarType, typename THTensorType>
 SynchronizationHandle* allreducep2pAsync(
   THCState* state, THTensorType* input, THTensorType* output, MPI::Op mpiRedOp)
 {
+  {
+    // Latency-bound, better go through stock MPI implementation
+    auto nElement = torch::thc::nElement<THTensorType>(state, input);
+    if (nElement <= constants::kSmallAllreduceSizeGPU) {
+      return thc::allreduceAsync<ScalarType>(state, input, output, mpiRedOp);
+    }
+  }
+
   if (constants::kUseHierarchicalCollectives) {
     // If we have to go through TCP we cannot rely on cuda support to properly
     // perform CPU-GPU copies asynchronously. Write our own hierarchical
@@ -919,11 +970,13 @@ SynchronizationHandle* allreduceImpl(THCState* state,
         rInner->comm->interComm,
         hiPriStreams);
       torch::mpi::thc::postSyncHiPriStreams(stream);
-      nccl::thc::broadcast(outputData,
-                           0,
-                           nElement,
-                           stream,
-                           *rInner->ncclComm);
+      if (!rInner->comm->cartesian) {
+        nccl::thc::broadcast(outputData,
+                             0,
+                             nElement,
+                             stream,
+                             *rInner->ncclComm);
+      }
       THCudaCheck(cudaStreamSynchronize(stream));
       // TODO: ScopeGuard
       releaseCollectiveResources(const_cast<CollectiveResources*>(rInner));
@@ -934,7 +987,7 @@ SynchronizationHandle* allreduceImpl(THCState* state,
   // seems to create deadlocks.
   // So it seems no MPI overlapping of NCCL transfers with copies?
   // auto& futures = getCollectiveFutures();
-  // futures.push_back(collectiveOffloadThreadPool().enqueue(l));
+  // futures.push_back(collectiveOffloadThreadPool().enqueue(lambda));
   // return synchronizationHandleFromFuture(futures.size() - 1);
 
   lambda();

@@ -26,6 +26,10 @@
 using namespace std;
 
 
+
+#include <sstream>
+
+
 #ifdef TORCH_MPI_NCCL
 
 ncclComm_t* makeNCCLCommunicator(const MPI::Intracomm& localComm) {
@@ -169,7 +173,7 @@ CommunicatorKey::CommunicatorKey(const CommunicatorKey& other) {
   memcpy(key, other.key, strlen(other.key));
 }
 
-CommunicatorKey& CommunicatorKey::operator=(CommunicatorKey& other) {
+CommunicatorKey& CommunicatorKey::operator=(const CommunicatorKey& other) {
   memset(key, 0, kCommunicatorKeyLen);
   memcpy(key, other.key, strlen(other.key));
   return *this;
@@ -183,20 +187,20 @@ CommunicatorKey CommunicatorKey::fromString(std::string s) {
 }
 
 Communicator::Communicator(const MPI::Intracomm& parent, CommunicatorKey key) :
-    key(key)
+    cartesian(true), key(key)
 {
   MAIN_THREAD_GUARD();
 
-  auto parentSize = commSize(parent);
-  auto parentRank = commRank(parent);
+  auto sizeInParent = commSize(parent);
+  auto rankInParent = commRank(parent);
 
   // Need to register new communicators.
   // Must synchronize all outstanding MPI calls so deadlocks don't occur
   syncAll();
 
   // Allgather
-  vector<CommunicatorKey> keys(parentSize);
-  keys[parentRank] = key;
+  vector<CommunicatorKey> keys(sizeInParent);
+  keys[rankInParent] = key;
 
   parent.Allgather(key.key,
                    kCommunicatorKeyLen,
@@ -205,52 +209,119 @@ Communicator::Communicator(const MPI::Intracomm& parent, CommunicatorKey key) :
                    kCommunicatorKeyLen,
                    MPI_CHAR);
 
-  // Extract the ranks that should participate in the intra communicator
-  vector<int> intraCommParticipants;
-  int otherRank = 0;
-  for (auto &h : keys) {
-    if (string(key.key) == string(h.key)) {
-      intraCommParticipants.push_back(otherRank);
-    }
-    otherRank++;
+  // Create a sorted (key, rank) vector from parent
+  typedef pair<CommunicatorKey, int> KeyRank;
+  vector<KeyRank> keyRanks;
+  int rank = 0;
+  for (auto &k : keys) {
+    keyRanks.push_back(make_pair(k, rank++));
   }
+  std::sort(
+    keyRanks.begin(),
+    keyRanks.end(),
+    [](const KeyRank &a, const KeyRank &b) {
+      auto res = string(a.first.key).compare(string(b.first.key));
+      if (res < 0) { return true; }
+      if (res > 0) { return false; }
+      return a.second < b.second;
+    });
 
-  int myRankInLocalComm = 0;
-  for (auto &r : intraCommParticipants) {
-    if (r == parentRank) {
+  vector<KeyRank> myIntraCommParticipants;
+  std::copy_if(
+    keyRanks.begin(),
+    keyRanks.end(),
+    std::back_inserter(myIntraCommParticipants),
+    [=](const KeyRank& a) {
+      return string(a.first.key) == string(key.key);
+    });
+
+  int myRankInIntraComm = 0;
+  for (auto &r : myIntraCommParticipants) {
+    if (r.second == rankInParent) {
       break;
     }
-    myRankInLocalComm++;
+    myRankInIntraComm++;
   }
 
-  // The color for my parentRank is min(intraCommParticipants) which is
-  // incidentally intraCommParticipants[0]
-  intraComm = parent.Split(intraCommParticipants[0], myRankInLocalComm);
+  stringstream ss;
+  ss << "\n\nSorted keys: ";
+  for (auto &h : keyRanks) {
+    ss << string(h.first.key) << ":" << h.second << " ";
+  }
+  ss << "myIntraCommParticipants: ";
+  for (auto &h : myIntraCommParticipants) {
+    ss << string(h.first.key) << ":" << h.second << " ";
+  }
+  ss << " my rank in myIntraCommParticipants is: " << myRankInIntraComm;
 
+
+  vector<KeyRank> uniqueKeys;
+  std::copy(keyRanks.begin(), keyRanks.end(), std::back_inserter(uniqueKeys));
+  auto last = std::unique(
+    uniqueKeys.begin(),
+    uniqueKeys.end(),
+    [=](const KeyRank& a, const KeyRank& b) {
+      return std::string(a.first.key) == std::string(b.first.key);
+    });
+
+  ss << "\n--- uniqueKeys: ";
+  int numPerIntercomm = -1;
+  bool isCartesian = true;
+  for (auto it = uniqueKeys.begin(); it != last; it++) {
+    ss << string(it->first.key) << ":" << it->second << " ";
+
+    int count = std::count_if(
+      keyRanks.begin(),
+      keyRanks.end(),
+      [=](const KeyRank& a) {
+        return string(a.first.key) == string(it->first.key);
+      });
+    if (numPerIntercomm == -1) { numPerIntercomm = count; }
+    else if (numPerIntercomm != count) { isCartesian = false; }
+  }
+  cartesian = isCartesian;
+
+  // All ranks that are members of the same intraComm need to agree on the
+  // same name. Name must be unique across intraComms.
+  // By construction myIntraCommParticipants[0] is the perfect candidate for
+  // such a name.
+  intraComm = parent.Split(
+    myIntraCommParticipants[0].second, myRankInIntraComm);
+
+  // Now we build the interComm:
+  // 1. if the communicator is not cartesian we only link the roots of each
+  // interComm together (i.e. myRankInIntraComm == 0)
+  // 2. otherwise we link each myRankInIntraComm
+  // together.
+  // In both cases we create a vector which maps rankInParent to
+  // myRankInIntraComm
+  MPI_Comm _interComm;
+  vector<int> rankInParentToMyRankInIntraComm(sizeInParent);
   // Filter the group of processes to only the root of each intraComm
-  vector<int> interCommParticipants(parentSize);
-  interCommParticipants[parentRank] = intraCommParticipants[0];
-
   parent.Allgather(
-    &intraCommParticipants[0],
+    &myRankInIntraComm,
     1,
     MPI_INT,
-    const_cast<int*>(&interCommParticipants[0]),
+    const_cast<int*>(&rankInParentToMyRankInIntraComm[0]),
     1,
     MPI_INT);
+  rankInParentToMyRankInIntraComm[rankInParent] = myRankInIntraComm;
 
   MPI::Group parentGroup = parent.Get_group();
-  std::sort(interCommParticipants.begin(), interCommParticipants.end());
-  auto last =
-    std::unique(interCommParticipants.begin(), interCommParticipants.end());
-  interCommParticipants.erase(last, interCommParticipants.end());
+  // Intercomm participant
+  vector<int> interCommParticipants;
+  int ind = 0;
+  for (auto rIIC : rankInParentToMyRankInIntraComm) {
+    if (rIIC == myRankInIntraComm) {
+      interCommParticipants.push_back(ind);
+    }
+    ++ind;
+  }
 
-  MPI_Comm _interComm;
-  if (std::find(interCommParticipants.begin(),
-                interCommParticipants.end(),
-                parentRank) !=
-      interCommParticipants.end()) {
-    // Intercomm participant
+  if (cartesian || myRankInIntraComm == 0) {
+    ss << "\n--- interCommParticipants: ";
+    for (auto i : interCommParticipants) { ss << i << " "; }
+    // Construct from interCommParticipants
     MPI_Group rootGroup;
     MPI_Group_incl(parentGroup,
                    interCommParticipants.size(),
@@ -259,21 +330,24 @@ Communicator::Communicator(const MPI::Intracomm& parent, CommunicatorKey key) :
     MPI_Comm_create_group(parent, rootGroup, 0, &_interComm);
     MPI_Group_free(&rootGroup);
   } else {
-    // Not participating in Intercomm, just create a single element
+    // Not participating in interComm, just create a single element
     // communicator so we can ignore hierarchy.
     MPI_Group rootGroup;
     MPI_Group_incl(parentGroup,
                    1,
-                   &parentRank,
+                   &rankInParent,
                    &rootGroup);
     MPI_Comm_create_group(parent, rootGroup, 0, &_interComm);
     MPI_Group_free(&rootGroup);
   }
 
   interComm = MPI::Intracomm(_interComm);
+
+  VLOG_1(ss.str());
 }
 
 Communicator::Communicator(const Communicator& orig) :
+    cartesian(orig.cartesian),
     key(orig.key),
     interComm(orig.interComm.Clone()),
     intraComm(orig.intraComm.Clone())

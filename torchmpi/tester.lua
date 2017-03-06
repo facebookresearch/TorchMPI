@@ -49,9 +49,10 @@ tester.runOneConfig = function(tests, nRuns, nSkip, config, printDebug)
             -- Skip the timing of the first nSkip iterations
             if r >= nSkip + 1 then timer:resume() end
             mpi.barrier()
-            local handle = T.test(input, output)
+            local handle = T.test(input, output, r == 1)
             mpi.barrier()
             if handle == 'NYI' then
+               print('NYI: ', testName, size, 'skipping all such tests from now on')
                goto continueTestLoop
             end
             if handle then
