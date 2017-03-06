@@ -23,13 +23,13 @@ mpirun -n 4  --bind-to none --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT}
 mpirun -n 4  --bind-to none --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/collectives_p2p.lua -all
 mpirun -n 4  --bind-to none --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/parameterserver.lua
 
-# Longer tests, single node (apps)
-${LUAJIT} apps/mnist/mnist_sequential.lua
-mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_allreduce.lua
-mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_allreduce_async.lua
-mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_dsgd.lua
-mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_downpour.lua
-mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_easgd.lua
+# Longer tests, single node (examples)
+${LUAJIT} examples/mnist/mnist_sequential.lua
+mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce.lua
+mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce_async.lua
+mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_dsgd.lua
+mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_downpour.lua
+mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd.lua
 
 if test ${HOSTFILE}; then
     # No hostfile, no multi-node for you!
@@ -47,12 +47,12 @@ if test ${HOSTFILE}; then
     mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/collectives_p2p.lua -all
     mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/parameterserver.lua
 
-    # Longer tests, multi-node (apps)
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_allreduce.lua
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_allreduce_async.lua
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_dsgd.lua
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_downpour.lua
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_easgd.lua
+    # Longer tests, multi-node (examples)
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce.lua
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce_async.lua
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_dsgd.lua
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_downpour.lua
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd.lua
 fi
 
 # TODO: make this work properly in general

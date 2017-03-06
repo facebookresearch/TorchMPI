@@ -1,3 +1,11 @@
+--[[
+ Copyright (c) 2016-present, Facebook, Inc.
+ All rights reserved.
+
+ This source code is licensed under the BSD-style license found in the
+ LICENSE file in the root directory of this source tree. An additional grant
+ of patent rights can be found in the PATENTS file in the same directory.
+--]]
 require('torch')
 local MPI = require('torchmpi.env')
 local wrap = require('torchmpi.wrap')
@@ -83,7 +91,7 @@ end
 -- and save bookkeeping information in torchmpi.cache.
 -- They make implementation choices which may not work for you but at least
 -- they allow to build a simple dataparallel, downpour and easgd
--- (see apps/mnist/mnist_parameterserver_*).
+-- (see examples/mnist/mnist_parameterserver_*).
 --
 -- Be sure to understand the assumptions if you use them.
 -----------------------------------------------------------------------------

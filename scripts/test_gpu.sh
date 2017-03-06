@@ -26,14 +26,14 @@ mpirun -n 2 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/collectives_p2p.lu
 mpirun -n 4 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/collectives_p2p.lua -all -gpu
 mpirun -n 4 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/parameterserver.lua
 
-# Longer tests, single node (apps)
-mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_allreduce.lua -usegpu
-mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_allreduce_async.lua -usegpu
+# Longer tests, single node (examples)
+mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce.lua -usegpu
+mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce_async.lua -usegpu
 
 # Parameterserver only CPU atm
-# mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_dsgd.lua -usegpu
-# mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_downpour.lua -usegpu
-# mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_easgd.lua -usegpu
+# mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_dsgd.lua -usegpu
+# mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_downpour.lua -usegpu
+# mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd.lua -usegpu
 
 if test ${HOSTFILE}; then
     # No hostfile, no multi-node for you!
@@ -51,14 +51,14 @@ if test ${HOSTFILE}; then
         mpirun -n ${n} -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_nccl.lua -all -gpu
     done
 
-    # Longer tests, multi-node (apps)
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_allreduce.lua -usegpu
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_allreduce_async.lua -usegpu
+    # Longer tests, multi-node (examples)
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce.lua -usegpu
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce_async.lua -usegpu
 
     # Parameterserver only CPU atm
-    # mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_dsgd.lua -usegpu
-    # mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_downpour.lua -usegpu
-    # mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./apps/mnist/mnist_parameterserver_easgd.lua -usegpu
+    # mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_dsgd.lua -usegpu
+    # mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_downpour.lua -usegpu
+    # mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd.lua -usegpu
 fi
 
 # TODO: make this work properly in general

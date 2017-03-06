@@ -1,6 +1,12 @@
-require('nn')
-require('paths')
+--[[
+ Copyright (c) 2016-present, Facebook, Inc.
+ All rights reserved.
 
+ This source code is licensed under the BSD-style license found in the
+ LICENSE file in the root directory of this source tree. An additional grant
+ of patent rights can be found in the PATENTS file in the same directory.
+--]]
+require('nn')
 local tnt = require('torchnet')
 
 -- use GPU or not:
@@ -9,13 +15,12 @@ cmd:option('-usegpu', false, 'use gpu for training')
 cmd:option('-seed', 1111, 'use gpu for training')
 
 local config = cmd:parse(arg)
-print(string.format('running on %s', config.usegpu and 'GPU' or 'CPU'))
+print(string.format('running on %s, dataset path %s',
+   config.usegpu and 'GPU' or 'CPU', config.datasetPath))
 
-local mpi = require('torchmpi')
--- The model we use for GPU + MPI is 1 Lua/Terra process for 1 GPU
--- mpi.start sets the GPU automatically
-mpi.start(config.usegpu, true)
-local mpinn = require('torchmpi.nn')
+if config.usegpu then
+   require('cutorch')
+end
 
 -- Set the random seed manually for reproducibility.
 torch.manualSeed(config.seed)
@@ -32,24 +37,13 @@ engine.hooks.onStartEpoch = function(state)
    meter:reset()
    clerr:reset()
 end
-
-local correctnessCheck = true
 engine.hooks.onForwardCriterion = function(state)
-   if correctnessCheck then mpinn.checkWithAllreduce(state.network) end
    meter:add(state.criterion.output)
    clerr:add(state.network.output, state.sample.target)
    if state.training then
-      print(string.format('[%d/%d] avg. loss: %2.4f; avg. error: %2.4f',
-         mpi.rank() + 1, mpi.size(), meter:value(), clerr:value{k = 1}))
+      print(string.format('avg. loss: %2.4f; avg. error: %2.4f',
+         meter:value(), clerr:value{k = 1}))
    end
-end
-
-if config.usegpu then
-   mpi.async.initStreams(true)
-end
-mpinn.async.registerAsyncMPIBackward(net)
-engine.hooks.onBackward = function(state)
-   mpinn.async.synchronizeGradients(state.network)
 end
 
 -- set up GPU training:
@@ -71,18 +65,12 @@ if config.usegpu then
    end  -- alternatively, this logic can be implemented via a TransformDataset
 end
 
--- Perform weight and bias synchronization before starting training
-mpinn.synchronizeParameters(net)
-for _, v in pairs(net:parameters()) do mpi.checkWithAllreduce(v, 'initialParameters') end
-
-mpinn.checkWithAllreduce(net)
-
 local makeIterator = paths.dofile('makeiterator.lua')
 
 -- train the model:
 engine:train{
    network   = net,
-   iterator  = makeIterator('train'),
+   iterator  = makeIterator('train', 'sequential'),
    criterion = criterion,
    lr        = 0.2,
    maxepoch  = 5,
@@ -93,19 +81,10 @@ meter:reset()
 clerr:reset()
 engine:test{
    network   = net,
-   iterator  = makeIterator('test'),
+   iterator  = makeIterator('test', 'sequential'),
    criterion = criterion,
 }
 
--- Sanity check, paramMean for all processes should be the same, this may diverge
--- a bit in the absence of double precision
-for _, v in pairs(net:parameters()) do mpi.checkWithAllreduce(v, 'final parameters') end
-
 local loss = meter:value()
 local err = clerr:value{k = 1}
-print(string.format('[%d/%d] test loss: %2.4f; test error: %2.4f',
-   mpi.rank() + 1, mpi.size(), loss, err))
-
-mpi.checkWithAllreduce(loss, 'final loss')
-
-mpi.stop()
+print(string.format('test loss: %2.4f; test error: %2.4f', loss, err))
