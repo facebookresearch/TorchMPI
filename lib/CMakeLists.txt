@@ -41,10 +41,6 @@ if(WITH_CUDA)
    add_definitions(-DTORCH_MPI_CUDA)
    INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/cmake/select_compute_arch.cmake)
    CUDA_SELECT_NVCC_ARCH_FLAGS(NVCC_FLAGS_EXTRA)
-# TODO: Nimbix compilation with gcc-4.8 seems off .. the flag just below should not
-# be needed
-   LIST(APPEND NVCC_FLAGS_EXTRA "--std=c++11")
-   LIST(APPEND CUDA_NVCC_FLAGS ${NVCC_FLAGS_EXTRA})
    set (CUDA_VERBOSE_BUILD ON)
    set (CUDA_PROPAGATE_HOST_FLAGS ON)
    include_directories(${Torch_INSTALL_INCLUDE}/THC)
@@ -58,7 +54,7 @@ if(WITH_CUDA)
 endif()
 
 if(WITH_CUDA)
-  cuda_add_library(torchmpi MODULE ${SRC}) # module for mac os x support
+  cuda_add_library(torchmpi MODULE ${SRC} OPTIONS -std c++11) # module for mac os x support
 #DEBUG:  target_link_libraries(torchmpi TH THC)
 else()
   add_library(torchmpi MODULE ${SRC}) # module for mac os x support
