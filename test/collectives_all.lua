@@ -14,6 +14,12 @@ cmd:option('-tests', 'all', 'Options: all | allselector | basic | p2p | nccl')
 cmd:option('-processor', 'both', 'Options: gpu | cpu | both')
 cmd:option('-async', false, 'dispatch collectives asynchronously and wait for handle before checking')
 cmd:option('-inPlace', false, 'run inPlace or not')
+cmd:option('-hierarchical', 'true', 'Use hierarchical collectives (true) or flat collectives (false)')
+cmd:option('-staged', 'true', 'Use staged collectives (true) or flat collectives (false)')
+cmd:option('-numBuffers', 1, 'Number of buffers to use for cpu or gpu collectives')
+cmd:option('-minBufferSize', bit.lshift(1, 17), "Minimum buffer size for cpu and gpu collectives")
+cmd:option('-maxBufferSize', bit.lshift(1, 22), "Maximum buffer size for cpu and gpu collectives")
+cmd:option('-maxSizeForTreeBasedBroadcast', bit.lshift(1, 22), "Maximum size to use tree-based broadcast")
 
 local config = cmd:parse(arg)
 assert(config.tests == 'all' or config.tests == 'allselector' or
@@ -48,20 +54,29 @@ local nRuns = config.benchmark and 10 + nSkip or 1
 local mpi = require('torchmpi')
 mpi.start(true)
 
-if false then
-   -- mpi.C.torchmpi_set_flat_collectives()
-   mpi.C.torchmpi_set_hierarchical_collectives()
-   -- mpi.C.torchmpi_set_staged_collectives()
-   mpi.C.torchmpi_set_direct_collectives()
-   mpi.C.torchmpi_set_num_buffers_per_cpu_collective(4)
-   mpi.C.torchmpi_set_num_buffers_per_gpu_collective(4)
-   mpi.C.torchmpi_set_min_buffer_size_per_cpu_collective(2^10)
-   mpi.C.torchmpi_set_max_buffer_size_per_cpu_collective(2^20)
-   mpi.C.torchmpi_set_min_buffer_size_per_gpu_collective(2^10)
-   mpi.C.torchmpi_set_max_buffer_size_per_gpu_collective(2^20)
-   mpi.C.torchmpi_set_broadcast_size_cpu_tree_based(2^22)
-   mpi.C.torchmpi_set_broadcast_size_gpu_tree_based(2^22)
+if config.hierarchical == 'true' then
+  mpi.C.torchmpi_set_hierarchical_collectives()
+else
+  mpi.C.torchmpi_set_flat_collectives()
 end
+
+if config.staged == 'true' then
+  mpi.C.torchmpi_set_staged_collectives()
+else
+  mpi.C.torchmpi_set_direct_collectives()
+end
+
+mpi.C.torchmpi_set_num_buffers_per_cpu_collective(config.numBuffers)
+mpi.C.torchmpi_set_num_buffers_per_gpu_collective(config.numBuffers)
+
+mpi.C.torchmpi_set_min_buffer_size_per_cpu_collective(config.minBufferSize)
+mpi.C.torchmpi_set_min_buffer_size_per_gpu_collective(config.minBufferSize)
+
+mpi.C.torchmpi_set_max_buffer_size_per_cpu_collective(config.maxBufferSize)
+mpi.C.torchmpi_set_max_buffer_size_per_gpu_collective(config.maxBufferSize)
+
+mpi.C.torchmpi_set_broadcast_size_cpu_tree_based(config.maxSizeForTreeBasedBroadcast)
+mpi.C.torchmpi_set_broadcast_size_gpu_tree_based(config.maxSizeForTreeBasedBroadcast)
 
 local collectiveAvailabilityCPU = mpi.collectiveAvailability(true, false)
 local collectiveAvailabilityGPU = mpi.collectiveAvailability(false, true)
