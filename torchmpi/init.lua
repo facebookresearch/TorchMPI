@@ -471,6 +471,65 @@ configureCollectiveSelector = function()
    }
 end
 
+function MPI.collectiveAvailability(cpu, gpu)
+   -- use collectiveSelector as a proxy for having been inited.
+   if cpu == nil then cpu = true end
+   if gpu == nil then gpu = true end
+   if MPI.collectiveSelector == nil then
+      return nil
+   end
+
+   local str = ""
+   local cpugpu = {}
+   if cpu then table.insert(cpugpu, false) end
+   if gpu then table.insert(cpugpu, true) end
+   for _, gpu in ipairs(cpugpu) do
+      if not gpu then
+         str = str .. "cpu = {\n"
+      else
+         str = str .. "gpu = {\n"
+      end
+      for _, nccl in ipairs({false, true}) do
+         for _, async in ipairs({false, true}) do
+            for _, p2p in ipairs({false, true}) do
+               for _, collective in ipairs({"broadcast", "reduce", "allreduce", "sendreceive"}) do
+                  if gpu or not nccl then -- cpu + nccl not valid
+                     local funcname = "MPI" .. (nccl and ".nccl" or "" )
+                         .. (async and ".async" or "") .. (p2p and ".p2p." or ".")
+                         .. collective .. "Tensor"
+
+                     local func = MPI
+                     if nccl then
+                        func = MPI.hasNCCL and func.nccl or nil
+                     end
+                     if func ~= nil then
+                        func = async and func.async or func
+                        func = p2p and func.p2p or func
+                        func = func[collective .. "Tensor"]
+                     end
+                     local val = func ~= nil and "available" or "unimplemented"
+
+                     -- differentiate between unimplemented and unavailable
+                     if func == nil and nccl and not MPI.hasNCCL then
+                        val = collective == "sendreceive" and "unimplemented" or "unavailable"
+                     end
+
+                     -- special cases
+                     if gpu and async and not nccl and collective == "reduce" then
+                        val = "unimplemented"
+                     end
+                     str = str .. ('\t%-35s \t->\t %s\n'):format(funcname, val)
+                  end
+               end
+            end
+         end
+      end
+      str = str .. "}\n"
+   end
+
+   return str
+end
+
 MPI.collectiveSelectorToString = function(cpuSel, nodeSel, asyncSel, collSel)
    assert(not cpuSel or cpuSel == 'cpu' or cpuSel == 'gpu', 'Invalid cpuSelector string ' .. tostring(cpuSel))
    assert(not nodeSel or nodeSel == 'singlenode' or nodeSel == 'multinode', 'Invalid nodeSelector string ' .. tostring(nodeSel))
