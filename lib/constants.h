@@ -27,6 +27,7 @@ extern bool immutableConstants;
 
 extern bool kUseStagedCollectives;
 extern bool kUseHierarchicalCollectives;
+extern bool kUseCartesianCommunicator;
 
 extern int kCollectiveOffloadThreadPoolSize;
 extern int kNumAsyncCollectivesInFlight;
