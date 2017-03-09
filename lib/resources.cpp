@@ -279,7 +279,7 @@ Communicator::Communicator(const MPI::Intracomm& parent, CommunicatorKey key) :
     if (numPerIntercomm == -1) { numPerIntercomm = count; }
     else if (numPerIntercomm != count) { isCartesian = false; }
   }
-  cartesian = isCartesian;
+  cartesian = isCartesian && torch::mpi::constants::kUseCartesianCommunicator;
 
   // All ranks that are members of the same intraComm need to agree on the
   // same name. Name must be unique across intraComms.
@@ -318,27 +318,30 @@ Communicator::Communicator(const MPI::Intracomm& parent, CommunicatorKey key) :
     ++ind;
   }
 
+  int myRankInInterComm = -1;
+  {
+    int ind = 0;
+    for (auto icp : interCommParticipants) {
+      if (icp == rankInParent) {
+        myRankInInterComm = ind;
+      }
+      ind++;
+    }
+  }
+
   if (cartesian || myRankInIntraComm == 0) {
     ss << "\n--- interCommParticipants: ";
     for (auto i : interCommParticipants) { ss << i << " "; }
-    // Construct from interCommParticipants
-    MPI_Group rootGroup;
-    MPI_Group_incl(parentGroup,
-                   interCommParticipants.size(),
-                   &interCommParticipants[0],
-                   &rootGroup);
-    MPI_Comm_create_group(parent, rootGroup, 0, &_interComm);
-    MPI_Group_free(&rootGroup);
+    ss << "\n--- rankInParent: " << rankInParent;
+
+    THAssert(myRankInInterComm >= 0);
+
+    _interComm = parent.Split(
+      interCommParticipants[0], myRankInInterComm);
   } else {
     // Not participating in interComm, just create a single element
     // communicator so we can ignore hierarchy.
-    MPI_Group rootGroup;
-    MPI_Group_incl(parentGroup,
-                   1,
-                   &rankInParent,
-                   &rootGroup);
-    MPI_Comm_create_group(parent, rootGroup, 0, &_interComm);
-    MPI_Group_free(&rootGroup);
+    _interComm = parent.Split(rankInParent, 0);
   }
 
   interComm = MPI::Intracomm(_interComm);

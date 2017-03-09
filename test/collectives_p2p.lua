@@ -27,9 +27,17 @@ mpi.start(config.gpu)
 -- Experiment with these options to tune collective performance
 if false then
    -- mpi.C.torchmpi_set_flat_collectives()
+   -- OR
    mpi.C.torchmpi_set_hierarchical_collectives()
+
    -- mpi.C.torchmpi_set_staged_collectives()
+   -- OR
    mpi.C.torchmpi_set_direct_collectives()
+
+   mpi.C.torchmpi_set_cartesian_communicator()
+   --OR
+   -- mpi.C.torchmpi_set_tree_communicator()
+
    mpi.C.torchmpi_set_num_buffers_per_cpu_collective(4)
    mpi.C.torchmpi_set_num_buffers_per_gpu_collective(4)
    mpi.C.torchmpi_set_min_buffer_size_per_cpu_collective(2^10)

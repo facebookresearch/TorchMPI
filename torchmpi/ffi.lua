@@ -146,6 +146,8 @@ local function declMPI(withCuda)
       void torchmpi_set_flat_collectives();              // default false
       void torchmpi_set_staged_collectives();            // default true
       void torchmpi_set_direct_collectives();            // default false
+      void torchmpi_set_cartesian_communicator();        // default true
+      void torchmpi_set_tree_communicator();             // default false
       void torchmpi_set_small_cpu_broadcast_size(int n); // default 1 << 13
       void torchmpi_set_small_cpu_allreduce_size(int n); // default 1 << 16
       void torchmpi_set_small_gpu_broadcast_size(int n); // default 1 << 13

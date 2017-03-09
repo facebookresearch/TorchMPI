@@ -91,6 +91,8 @@ extern "C" {
   void torchmpi_set_hierarchical_collectives();
   void torchmpi_set_staged_collectives();
   void torchmpi_set_direct_collectives();
+  void torchmpi_set_cartesian_communicator();
+  void torchmpi_set_tree_communicator();
 
   // For collectives on small vectors, stock MPI implementations are usually
   // quite competitive. These functions change the trigger value.

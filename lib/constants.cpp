@@ -66,6 +66,7 @@ bool immutableConstants = false;
 
 bool kUseStagedCollectives = true;
 bool kUseHierarchicalCollectives = true;
+bool kUseCartesianCommunicator = true;
 
 int kSmallBcastSizeGPU = 1 << 13;
 int kSmallAllreduceSizeGPU = 1 << 16;
@@ -117,6 +118,18 @@ extern "C" {
       THError("Communications related constants are immutable after initialization");
     }
     kUseStagedCollectives = false;
+  }
+  void torchmpi_set_cartesian_communicator() {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kUseCartesianCommunicator = true;
+  }
+  void torchmpi_set_tree_communicator() {
+    if (immutableConstants) {
+      THError("Communications related constants are immutable after initialization");
+    }
+    kUseCartesianCommunicator = false;
   }
   void torchmpi_set_small_cpu_broadcast_size(int n) {
     if (immutableConstants) {
