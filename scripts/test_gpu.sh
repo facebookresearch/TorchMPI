@@ -20,10 +20,8 @@ LUAJIT=${LUAJIT:=luajit}
 
 # The following test suite is made for 2 nodes, 4 GPU per node which is the basic Nimbix setup.
 # Single node tests
-mpirun -n 4 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/collectives.lua -all -gpu
-mpirun -n 4 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/collectives_nccl.lua -all -gpu
-mpirun -n 2 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/collectives_p2p.lua -all -gpu
-mpirun -n 4 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/collectives_p2p.lua -all -gpu
+mpirun -n 4 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor gpu
+mpirun -n 2 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -tests p2p -processor gpu
 mpirun -n 4 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/parameterserver.lua
 
 # Longer tests, single node (examples)
@@ -40,15 +38,15 @@ if test ${HOSTFILE}; then
     stat ${HOSTFILE}
 
     # Multi-node tests
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives.lua -all -gpu
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor gpu -tests basic
 
     # Custom hierarchical collectives have both cartesian and non-cartesian communicators, run a loop to test all
     export NUM_GPUS=$(nvidia-smi -L | wc -l)
     export NUM_NODES=$(cat ${HOSTFILE} | wc -l)
     export ub=$(echo ${NUM_GPUS}*${NUM_NODES} | bc)
     for n in $(seq 2 $ub); do
-        mpirun -n ${n} -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_p2p.lua -all -gpu
-        mpirun -n ${n} -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_nccl.lua -all -gpu
+        mpirun -n ${n} -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor gpu -tests p2p
+        mpirun -n ${n} -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor gpu -tests nccl
     done
 
     # Longer tests, multi-node (examples)

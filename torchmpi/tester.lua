@@ -55,6 +55,10 @@ tester.runOneConfig = function(tests, nRuns, nSkip, config, printDebug)
                print('NYI: ', testName, size, 'skipping all such tests from now on')
                goto continueTestLoop
             end
+            if handle == 'UNAVAILABLE' then
+               print('UNAVAILABLE: ', testName, size, 'skpping all such tests from now on')
+               goto continueTestLoop
+            end
             if handle then
                mpi.syncHandle(handle)
             end

@@ -19,8 +19,7 @@ for n in $(seq 37); do
     mpirun -n ${n} --bind-to none --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/hierarchical_communicators.lua -numRanks ${n} -numNodes 1;
 done
 mpirun -n 4  --bind-to none --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/parameterserver.lua
-mpirun -n 4  --bind-to none --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/collectives.lua -all
-mpirun -n 4  --bind-to none --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/collectives_p2p.lua -all
+mpirun -n 4  --bind-to none --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor cpu
 mpirun -n 4  --bind-to none --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/parameterserver.lua
 
 # Longer tests, single node (examples)
@@ -43,8 +42,7 @@ if test ${HOSTFILE}; then
         mpirun -n ${n} -hostfile ${HOSTFILE} --map-by node --bind-to none --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/hierarchical_communicators.lua -numRanks ${n} -numNodes ${NUM_NODES};
     done
 
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/collectives.lua -all
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/collectives_p2p.lua -all
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor cpu
     mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./test/parameterserver.lua
 
     # Longer tests, multi-node (examples)
