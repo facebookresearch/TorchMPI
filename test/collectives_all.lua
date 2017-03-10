@@ -18,7 +18,7 @@ cmd:option('-hierarchical', 'true', 'Use hierarchical collectives (true) or flat
 cmd:option('-staged', 'false', 'Use staged collectives (true) or flat collectives (false)')
 cmd:option('-numBuffers', 3, 'Number of buffers to use for cpu or gpu collectives')
 cmd:option('-minBufferSize', bit.lshift(1, 17), "Minimum buffer size for cpu and gpu collectives")
-cmd:option('-maxBufferSize', bit.lshift(1, 22), "Maximum buffer size for cpu and gpu collectives")
+cmd:option('-maxBufferSize', bit.lshift(1, 20), "Maximum buffer size for cpu and gpu collectives")
 cmd:option('-maxSizeForTreeBasedBroadcast', bit.lshift(1, 22), "Maximum size to use tree-based broadcast")
 
 local config = cmd:parse(arg)
@@ -61,7 +61,7 @@ end
 config.check = not config.benchmark
 if config.tests == 'nccl' then
    assert(config.processor == "gpu",
-     'This test must be ran with GPUs, please specify -gpu.')
+     'This test must be ran with GPUs, please specify -processor gpu.')
 end
 
 local nSkip = config.benchmark and 10 or 0
