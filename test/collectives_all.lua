@@ -12,11 +12,11 @@ local cmd = torch.CmdLine()
 cmd:option('-benchmark', false, 'skip correctness check and benchmark performance instead')
 cmd:option('-tests', 'all', 'Options: all | allselector | basic | p2p | nccl')
 cmd:option('-processor', 'both', 'Options: gpu | cpu | both')
-cmd:option('-async', false, 'dispatch collectives asynchronously and wait for handle before checking')
-cmd:option('-inPlace', false, 'run inPlace or not')
+cmd:option('-execution', 'both', 'Options: sync | async | both: Dispatch collectives asynchronously and wait for handle before checking')
+cmd:option('-storage', 'both', 'Options: inplace | copy | both: run inPlace or not')
 cmd:option('-hierarchical', 'true', 'Use hierarchical collectives (true) or flat collectives (false)')
-cmd:option('-staged', 'true', 'Use staged collectives (true) or flat collectives (false)')
-cmd:option('-numBuffers', 1, 'Number of buffers to use for cpu or gpu collectives')
+cmd:option('-staged', 'false', 'Use staged collectives (true) or flat collectives (false)')
+cmd:option('-numBuffers', 3, 'Number of buffers to use for cpu or gpu collectives')
 cmd:option('-minBufferSize', bit.lshift(1, 17), "Minimum buffer size for cpu and gpu collectives")
 cmd:option('-maxBufferSize', bit.lshift(1, 22), "Maximum buffer size for cpu and gpu collectives")
 cmd:option('-maxSizeForTreeBasedBroadcast', bit.lshift(1, 22), "Maximum size to use tree-based broadcast")
@@ -33,18 +33,35 @@ elseif config.processor == 'cpu' then
 elseif config.processor == 'both' then
    gpuTable = {false, true}
 else
-   error("Illegal processor option %s", config.processor)
+   error("Illegal processor option: " .. config.processor)
 end
 
--- these settings are a little strange but somewhat preserves old behavior,
--- i.e. async=true will only run async tests, but async=false will run
--- both false and true
-local asyncTable = config.async and {false, true} or {true}
-local inPlaceTable = config.inPlace and {false, true} or {true}
+local executionTable = nil
+if config.execution == 'async' then
+   executionTable = {true}
+elseif config.execution == 'sync' then
+   executionTable = {false}
+elseif config.execution == 'both' then
+   executionTable = {false, true}
+else
+   error("Illegal execution option: " .. config.execution)
+end
+
+local storageTable = nil
+if config.storage == 'inplace' then
+   storageTable = {true}
+elseif config.storage == 'copy' then
+   storageTable = {false}
+elseif config.storage == 'both' then
+   storageTable = {false, true}
+else
+   error("Illegal storage option: " .. config.storage)
+end
 
 config.check = not config.benchmark
 if config.tests == 'nccl' then
-   assert(config.processor == "gpu", 'This test must be ran with GPUs, please specify -gpu.')
+   assert(config.processor == "gpu",
+     'This test must be ran with GPUs, please specify -gpu.')
 end
 
 local nSkip = config.benchmark and 10 or 0
@@ -52,7 +69,7 @@ local nRuns = config.benchmark and 10 + nSkip or 1
 
 -- If using GPUs, set the GPU before initializing MPI
 local mpi = require('torchmpi')
-mpi.start(true)
+mpi.start(true, config.tests ~= 'nccl')
 
 if config.hierarchical == 'true' then
   mpi.C.torchmpi_set_hierarchical_collectives()
@@ -88,7 +105,7 @@ local function getCollectives()
       local sel = mpi.collectiveSelector
       sel = config.gpu and sel.gpu or sel.cpu
       sel = config.singlenode and sel.singlenode or sel.multinode
-      return config.async and sel.async or sel.async
+      return config.async and sel.async or sel
    else
       local sel = mpi
       if config.nccl then
@@ -372,9 +389,9 @@ local function ncclTable(gpu)
 end
 
 if config.tests == "allselector" then
-   for _, async in ipairs(asyncTable) do
+   for _, async in ipairs(executionTable) do
       for _, gpu in ipairs(gpuTable) do
-         for _, inPlace in ipairs(inPlaceTable) do
+         for _, inPlace in ipairs(storageTable) do
             for _, singlenode in ipairs({false, true}) do
                config.async = async
                config.gpu = gpu
@@ -387,15 +404,16 @@ if config.tests == "allselector" then
       end
    end
 else
-   for _, async in ipairs(asyncTable) do
+   for _, async in ipairs(executionTable) do
       for _, gpu in ipairs(gpuTable) do
-         for _, inPlace in ipairs(inPlaceTable) do
+         for _, inPlace in ipairs(storageTable) do
             local p2pTable = config.tests == "all" and {false, true}
                              or config.tests == "p2p" and {true} or {false}
             for _, p2p in ipairs(p2pTable) do
                for _, nccl in ipairs(ncclTable(gpu)) do
                   config.async = async
                   config.gpu = gpu
+                  config.inPlace = inPlace
                   config.nccl = nccl
                   config.p2p = p2p
                   setImplemented()

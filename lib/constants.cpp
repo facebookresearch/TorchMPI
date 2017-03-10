@@ -64,7 +64,7 @@ template<> MPI::Datatype mpiType<unsigned long>() {
 // After some point, constants become immutable
 bool immutableConstants = false;
 
-bool kUseStagedCollectives = true;
+bool kUseStagedCollectives = false;
 bool kUseHierarchicalCollectives = true;
 bool kUseCartesianCommunicator = true;
 
@@ -75,14 +75,14 @@ int kSmallBcastSizeCPU = 1 << 13;
 int kSmallAllreduceSizeCPU = 1 << 16;
 
 int kMinBufferSizeGPU = 1 << 17;
-int kMaxBufferSizeGPU = 1 << 22;
+int kMaxBufferSizeGPU = 1 << 20;
 int kMinBufferSizeCPU = 1 << 17;
-int kMaxBufferSizeCPU = 1 << 22;
+int kMaxBufferSizeCPU = 1 << 20;
 int kBcastSizeTreeBasedCPU = 1 << 22;
 int kBcastSizeTreeBasedGPU = 1 << 22;
 
-int kNumBuffersPerCollectiveCPU = 1;
-int kNumBuffersPerCollectiveGPU = 1;
+int kNumBuffersPerCollectiveCPU = 3;
+int kNumBuffersPerCollectiveGPU = 3;
 
 int kCollectiveOffloadThreadPoolSize = 4;
 int kNumAsyncCollectivesInFlight = 1 << 20;
