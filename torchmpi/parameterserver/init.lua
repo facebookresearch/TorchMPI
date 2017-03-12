@@ -6,12 +6,17 @@
  LICENSE file in the root directory of this source tree. An additional grant
  of patent rights can be found in the PATENTS file in the same directory.
 --]]
+
 require('torch')
 local MPI = require('torchmpi.env')
 local wrap = require('torchmpi.wrap')
 local cache = require('torchmpi.cache')
 
-local PS = {}
+local PS = require('torchmpi.parameterserver.env')
+
+require("torchmpi.parameterserver.update")
+require("torchmpi.parameterserver.downpourupdate")
+require("torchmpi.parameterserver.easgdupdate")
 
 -- Creates a parameter server from a tensor, allocating space for and copying
 -- the local portion (shard) of the tensor:data().
@@ -25,8 +30,8 @@ local PS = {}
 -- to value 'i'.
 -- Then, after running PS.init(tensor_i) on each process_i,
 -- the distributed parameter server will contain
---    shard[0]   shard[1]    ...  shard[MPI.size()]
---       0          1                MPI.size()
+--    shard[0]   shard[1]    ...  shard[MPI.size() - 1]
+--       0          1                MPI.size() - 1
 -- If you want a uniform sharded tensor initialization, you can make all processes
 -- synchronize to some value first with a broadcast then init the parameterserver.
 --
@@ -114,15 +119,20 @@ end
 -- Takes:
 -- 1. tensors: a table of tensors, usually coming from net:parameters().
 --    Can be either weights or gradients
--- 2. prefAllocFun: a prefetch alloc function to control where the prefetch
---    tensor should leave, if for instance you are short for GPU memory.
+-- 2. prefetchAllocator: a prefetch alloc function to control where the prefetch
+--    tensor should live, if for instance you are short for GPU memory.
 --    Defaults to a simple tensor:clone function.
 -- 3. psInitFun: a parameter server init function which informs how to
 --    intialize the sharded tensor. Defaults to copying the tensor from the
---    first process.
-PS.initTensors = function(tensors, prefAllocFun, psInitFun)
-   local prefAllocFun = prefAllocFun or
-   function(t) return t:clone() end
+--    rank 0.
+PS.initTensors = function(tensors, prefetchAllocator, psInitFun)
+   local prefetchAllocator = prefetchAllocator or
+      function(t)
+         local cputensor = torch.type(t):find('Cuda') and
+            cutorch.createCudaHostTensor():resize(t:nElement()):copy(t) or
+            t:clone()
+         return cputensor
+      end
 
    local psInitFun = function(ps, t)
       if MPI.rank() == 0 then
@@ -133,9 +143,9 @@ PS.initTensors = function(tensors, prefAllocFun, psInitFun)
 
    for i, t in ipairs(tensors) do
       assert(not cache.parameterServers[t])
-      cache.parameterServers[t] = PS.init(t)
-      cache.prefetchTensorReferences[t] = prefAllocFun(t)
-      psInitFun(cache.parameterServers[t], t)
+      cache.prefetchTensorReferences[t] = prefetchAllocator(t)
+      cache.parameterServers[t] = PS.init(cache.prefetchTensorReferences[t])
+      psInitFun(cache.parameterServers[t], cache.prefetchTensorReferences[t])
    end
    sanityCheckTensors(tensors)
 end
@@ -172,16 +182,37 @@ end
 -- Can be either weights or gradients
 -- Optionally takes a localUpdateRule function(prefetched, t) which
 -- applies the prefetched to t.
--- Returns a table of handles on which you can run PS.syncHandle to make sure
--- the send is complete.
+-- Returns a table of handles on which you can run PS.syncHandle to make
+-- sure the send is complete.
 PS.sendTensors = function(tensors, updates, remoteUpdateRule, localPreprocessFun)
+
+   local sendAllocator =
+      function(t)
+         local cputensor = torch.type(t):find('Cuda') and
+            cutorch.createCudaHostTensor():resize(t:nElement()):copy(t) or
+            t
+         return cputensor
+      end
+
    sanityCheckTensors(tensors)
    localPreprocessFun = localPreprocessFun or function(t) return t end
+
+   local sync = false
    local handles = {}
+   for i, t in ipairs(updates) do
+      cache.sendTensorReferences[t] = cache.sendTensorReferences[t] or
+         sendAllocator(t)
+      if cache.sendTensorReferences[t] ~= t then
+         -- Only taken for cuda tensors that have been copied to pinned
+         cache.sendTensorReferences[t]:copyAsync(t)
+         sync = true
+      end
+   end
+   if sync then cutorch.synchronize() end
    for i, t in ipairs(updates) do
       table.insert(handles,
                    PS.send(cache.parameterServers[tensors[i]],
-                           localPreprocessFun(t),
+                           localPreprocessFun(cache.sendTensorReferences[t]),
                            remoteUpdateRule))
    end
    return handles

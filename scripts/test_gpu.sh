@@ -28,10 +28,10 @@ mpirun -n 4 --bind-to none ./scripts/wrap.sh ${LUAJIT} ./test/parameterserver.lu
 mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce.lua -usegpu
 mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce_async.lua -usegpu
 
-# Parameterserver only CPU atm
-# mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_dsgd.lua -usegpu
-# mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_downpour.lua -usegpu
-# mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd.lua -usegpu
+# Parameterserver basic GPU support via CPU
+mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_downpour.lua -usegpu
+mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd.lua -usegpu
+mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd_dataparallel.lua -usegpu
 
 if test ${HOSTFILE}; then
     # No hostfile, no multi-node for you!
@@ -53,10 +53,10 @@ if test ${HOSTFILE}; then
     mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce.lua -usegpu
     mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_allreduce_async.lua -usegpu
 
-    # Parameterserver only CPU atm
-    # mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_dsgd.lua -usegpu
-    # mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_downpour.lua -usegpu
-    # mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd.lua -usegpu
+    # Parameterserver basic GPU support via CPU
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_downpour.lua -usegpu
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd.lua -usegpu
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd_dataparallel.lua -usegpu
 fi
 
 # TODO: make this work properly in general
