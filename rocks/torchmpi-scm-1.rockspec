@@ -16,7 +16,7 @@ description = {
 
 dependencies = {
    "torch",
-   -- dependences for the apps:
+   -- dependencies for the apps:
    "torchnet",
    "mnist",
 }

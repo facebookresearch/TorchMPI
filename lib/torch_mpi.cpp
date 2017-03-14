@@ -23,7 +23,7 @@
 /**********************************************************************
  ************************* Torch CPP Wrappers *************************
  **********************************************************************/
-// We don't want an explicit boost dependence just for preprocessor
+// We don't want an explicit boost dependency just for preprocessor
 // concatenation, just use 2 levels of .cpp.in inclusion.
 #include "generic/torch.cpp.in"
 

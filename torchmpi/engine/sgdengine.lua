@@ -18,14 +18,13 @@ local AREngine, SGDEngine =
 
 AREngine.__init = argcheck{
    {name="self",   type="tnt.AllReduceSGDEngine"},
-   {name="usegpu", type="boolean", default = true},
+   {name="usegpu", type="boolean", default = false},
    {name="async", type="boolean", default = false},
    {name="devicesync", type="boolean", default = true},
    {name="dynamicnetwork", type="boolean", default = true},
    {name="debug", type="boolean", default = false},
    call = function(self, usegpu, async, devicesync, dynamicnetwork, debug)
       assert(mpi, 'only supported when running with MPI')
-      assert(usegpu, 'usegpu must be true (WIP)')
       SGDEngine.__init(self)
       self.usegpu = usegpu
       self.async = async
@@ -111,7 +110,7 @@ AREngine.train = argcheck{
             --    GPU -> CPU -> data loading
             if self.devicesync then
                mpi.barrier()
-               cutorch.synchronize()
+               if self.usegpu then cutorch.synchronize() end
             end
             if self.debug then
                mpinn.checkWithAllreduce(state.network)
@@ -121,7 +120,7 @@ AREngine.train = argcheck{
             if self.devicesync then
                -- Synchronize right after forward pass, not strictly necessary
                mpi.barrier()
-               cutorch.synchronize()
+               if self.usegpu then cutorch.synchronize() end
             end
             if iterator.prefetch then iterator:prefetch() end
          elseif name == 'onBackward' then
