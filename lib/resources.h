@@ -143,7 +143,6 @@ CollectiveResources* acquireCollectiveResources(
   WithGlooContext g = WithGlooContext(),
   WithEvents e = WithEvents());
 void releaseCollectiveResources(CollectiveResources* r);
-void freeCollectiveResource(CollectiveResources* r);
 void freeCollectiveResources();
 
 #ifdef TORCH_MPI_CUDA
@@ -172,7 +171,6 @@ CollectiveResourcesCuda* acquireCollectiveResourcesCuda(
   WithGlooContext g = WithGlooContext(),
   WithEvents e = WithEvents());
 
-void freeCollectiveResourceCuda(CollectiveResourcesCuda* r);
 void freeCollectiveResourcesCuda();
 #endif
 

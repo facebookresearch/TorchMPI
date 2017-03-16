@@ -15,9 +15,9 @@ local tnt = require('torchnet')
 local cmd = torch.CmdLine()
 cmd:option('-usegpu', false, 'use gpu for training')
 cmd:option('-seed', 1111, 'use gpu for training')
-cmd:option('-prefetch', 25, 'prefetch distance for asynchronous communications')
-cmd:option('-tau', 50, 'communication cycle length for parameterserver (see easgd paper, we reuse the notation)')
-cmd:option('-initDelay', 20, 'delay the first communication to let the networks search a bit independently')
+cmd:option('-prefetch', 3, 'prefetch distance for asynchronous communications')
+cmd:option('-tau', 10, 'communication cycle length for parameterserver (see easgd paper, we reuse the notation)')
+cmd:option('-initDelay', 50, 'delay the first communication to let the networks search a bit independently')
 cmd:option('-beta', 0.9, 'see EASGD paper')
 cmd:option('-momentum', 0.9, 'see EASGD paper')
 
@@ -42,6 +42,9 @@ torch.manualSeed(config.seed)
 
 -- set up logistic regressor:
 local net = nn.Sequential():add(nn.Linear(784,10))
+-- Perform weight and bias synchronization before starting training
+mpinn.synchronizeParameters(net)
+for _, v in pairs(net:parameters()) do mpi.checkWithAllreduce(v, 'initialParameters') end
 local criterion = nn.CrossEntropyCriterion()
 
 -- set up training engine:
@@ -123,12 +126,10 @@ if config.usegpu then
    end  -- alternatively, this logic can be implemented via a TransformDataset
 end
 
--- Perform weight and bias synchronization before starting training
-mpinn.synchronizeParameters(net)
-for _, v in pairs(net:parameters()) do mpi.checkWithAllreduce(v, 'initialParameters') end
-
 local makeIterator = paths.dofile('makeiterator.lua')
 
+-- Ensure we get 1/k of the dataset
+mpi.C.torchmpi_set_communicator(0)
 -- train the model:
 engine:train{
    network   = net,
@@ -138,6 +139,8 @@ engine:train{
    maxepoch  = 5,
 }
 
+-- Ensure we get 1/k of the dataset
+mpi.C.torchmpi_set_communicator(0)
 -- measure test loss and error:
 meter:reset()
 clerr:reset()

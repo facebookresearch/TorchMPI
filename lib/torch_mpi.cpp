@@ -287,6 +287,9 @@ void torchmpi_stop() {
 
   barrier(getMainThreadMPICommunicator());
   freeCollectiveResources();
+#if TORCH_MPI_CUDA
+  freeCollectiveResourcesCuda();
+#endif
   mainThreadCommunicators.clear();
   if (!getenv("FB_INFRA")) {
     MPI::Finalize();

@@ -32,6 +32,9 @@ torch.manualSeed(config.seed)
 
 -- set up logistic regressor:
 local net = nn.Sequential():add(nn.Linear(784,10))
+-- Perform weight and bias synchronization before starting training
+mpinn.synchronizeParameters(net)
+for _, v in pairs(net:parameters()) do mpi.checkWithAllreduce(v, 'initialParameters') end
 local criterion = nn.CrossEntropyCriterion()
 
 -- set up training engine:
@@ -109,10 +112,6 @@ if config.usegpu then
       state.sample.target = tgpu
    end  -- alternatively, this logic can be implemented via a TransformDataset
 end
-
--- Perform weight and bias synchronization before starting training
-mpinn.synchronizeParameters(net)
-for _, v in pairs(net:parameters()) do mpi.checkWithAllreduce(v, 'initialParameters') end
 
 local makeIterator = paths.dofile('makeiterator.lua')
 

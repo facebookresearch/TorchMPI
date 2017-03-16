@@ -146,12 +146,6 @@ void releaseCollectiveResources(CollectiveResources* r) {
   r->inUse = false;
 }
 
-void freeCollectiveResource(CollectiveResources* r) {
-  MAIN_THREAD_GUARD();
-  THAssert(!r->inUse);
-  delete r;
-}
-
 void freeCollectiveResources() {
   auto& cr = collectiveResources();
   for (auto it : cr) {
@@ -693,7 +687,6 @@ CollectiveResourcesCuda::CollectiveResourcesCuda(
 }
 
 CollectiveResourcesCuda::~CollectiveResourcesCuda() {
-  delete comm;
 #ifdef TORCH_MPI_NCCL
   if (ncclComm) {
     ncclCommDestroy(*ncclComm);
@@ -757,6 +750,15 @@ CollectiveResourcesCuda* acquireCollectiveResourcesCuda(
   it->second->inUse = true;
   return it->second;
 }
+
+void freeCollectiveResourcesCuda() {
+  auto& cr = collectiveResourcesCuda();
+  for (auto it : cr) {
+    delete it.second;
+  }
+  cr.clear();
+}
+
 
 namespace cuda {
 

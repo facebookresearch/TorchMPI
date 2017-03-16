@@ -45,34 +45,34 @@ namespace torch { namespace mpi { namespace thc {
   auto nElement = torch::thc::nElement<THTensorType>(state, tensor);    \
   auto collectiveLevel = torch::mpi::getCollectiveSpan().first;         \
   CommunicatorGuard csOuter(collectiveLevel);                           \
-  const CollectiveResourcesCuda* rOuter = acquireCollectiveResourcesCuda(   \
+  const CollectiveResourcesCuda* rOuter = acquireCollectiveResourcesCuda( \
     tensorData, Spin(true));
 
 #define PREPARE_NCCL(state, tensor)                                     \
   PREPARE(state, tensor);                                               \
   CommunicatorGuard csInner(getCollectiveSpan().second);                \
-  const CollectiveResourcesCuda* rInner =                                   \
-    acquireCollectiveResourcesCuda(tensorData,                              \
-                               Spin(true),                              \
-                               WithNCCLComm(true));                     \
+  const CollectiveResourcesCuda* rInner =                               \
+    acquireCollectiveResourcesCuda(tensorData,                          \
+                                   Spin(true),                          \
+                                   WithNCCLComm(true));                 \
   auto hasIntra = getMainThreadCommunicator().hasIntraCollective();     \
   auto hasInter = getMainThreadCommunicator().hasInterCollective();
 
 #define PREPARE_GLOO(state, tensor)                                     \
   PREPARE(state, tensor);                                               \
   CommunicatorGuard csInner(getCollectiveSpan().second);                \
-  const CollectiveResourcesCuda* rInner =                                   \
-    acquireCollectiveResourcesCuda(tensorData,                              \
-                               Spin(true),                              \
-                               WithNCCLComm(false),                     \
-                               WithGlooContext(true));                  \
+  const CollectiveResourcesCuda* rInner =                               \
+    acquireCollectiveResourcesCuda(tensorData,                          \
+                                   Spin(true),                          \
+                                   WithNCCLComm(false),                 \
+                                   WithGlooContext(true));              \
   auto hasIntra = getMainThreadCommunicator().hasIntraCollective();     \
   auto hasInter = getMainThreadCommunicator().hasInterCollective();
 
 #define PREPARE_IPC(state, tensor)                                      \
   PREPARE(state, tensor);                                               \
   CommunicatorGuard csInner(getCollectiveSpan().second);                \
-  const CollectiveResourcesCuda* rInner = acquireCollectiveResourcesCuda(       \
+  const CollectiveResourcesCuda* rInner = acquireCollectiveResourcesCuda( \
     tensorData, Spin(true), WithNCCLComm(false),                        \
     WithGlooContext(false), WithEvents(true));                          \
   auto tensorDataBasePtr =                                              \
@@ -101,16 +101,16 @@ namespace torch { namespace mpi { namespace thc {
   auto nElement = torch::thc::nElement<THTensorType>(state, input);     \
   auto collectiveLevel = getCollectiveSpan().first;                     \
   CommunicatorGuard cs(collectiveLevel);                                \
-  const CollectiveResourcesCuda* rOuter = acquireCollectiveResourcesCuda(       \
+  const CollectiveResourcesCuda* rOuter = acquireCollectiveResourcesCuda( \
     inputData, Spin(true));
 
 #define PREPARE2_NCCL(state, input, output)                             \
   PREPARE2(state, input, output);                                       \
   CommunicatorGuard csInner(getCollectiveSpan().second);                \
-  const CollectiveResourcesCuda* rInner =                                   \
-    acquireCollectiveResourcesCuda(inputData,                               \
-                               Spin(true),                              \
-                               WithNCCLComm(true));                     \
+  const CollectiveResourcesCuda* rInner =                               \
+    acquireCollectiveResourcesCuda(inputData,                           \
+                                   Spin(true),                          \
+                                   WithNCCLComm(true));                 \
   auto hasIntra = getMainThreadCommunicator().hasIntraCollective();     \
   auto hasInter = getMainThreadCommunicator().hasInterCollective();
 
@@ -120,18 +120,18 @@ namespace torch { namespace mpi { namespace thc {
   }                                                                     \
   PREPARE2(state, input, output);                                       \
   CommunicatorGuard csInner(getCollectiveSpan().second);                \
-  const CollectiveResourcesCuda* rInner =                                   \
-    acquireCollectiveResourcesCuda(inputData,                               \
-                               Spin(true),                              \
-                               WithNCCLComm(false),                     \
-                               WithGlooContext(true));                  \
+  const CollectiveResourcesCuda* rInner =                               \
+    acquireCollectiveResourcesCuda(inputData,                           \
+                                   Spin(true),                          \
+                                   WithNCCLComm(false),                 \
+                                   WithGlooContext(true));              \
   auto hasIntra = getMainThreadCommunicator().hasIntraCollective();     \
   auto hasInter = getMainThreadCommunicator().hasInterCollective();
 
 #define PREPARE2_IPC(state, input, output)                              \
   PREPARE2(state, input, output);                                       \
   CommunicatorGuard csInner(getCollectiveSpan().second);                \
-  const CollectiveResourcesCuda* rInner = acquireCollectiveResourcesCuda(       \
+  const CollectiveResourcesCuda* rInner = acquireCollectiveResourcesCuda( \
     inputData, Spin(true), WithNCCLComm(false),                         \
     WithGlooContext(true), WithEvents(true));                           \
   auto outputDataBasePtr =                                              \
@@ -811,13 +811,26 @@ cudaStream_t broadcast(ScalarType* tensorData,
 // Collectives operating on THCuda*Tensor
 template<typename ScalarType, typename THTensorType>
 cudaStream_t broadcastImpl(THCState* state, THTensorType* tensor, int root) {
+  {
+    // Latency-bound, better go through stock MPI implementation
+    auto nElement = torch::thc::nElement<THTensorType>(state, tensor);
+    if (nElement <= constants::kSmallBcastSizeGPU) {
+      torch::mpi::thc::broadcast<ScalarType>(state, tensor, root);
+      return THCState_getCurrentStream(state);
+    }
+  }
+
   PREPARE_NCCL(state, tensor);
   if (hasInter) {
+    // Release before calling!
     // TODO: ScopeGuard
     releaseCollectiveResources(const_cast<CollectiveResourcesCuda*>(rInner));
     releaseCollectiveResources(const_cast<CollectiveResourcesCuda*>(rOuter));
-    THError("NYI: Multi-node/IPC domain NCCL broadcast not yet supported, " \
-            "use the stock MPI broadcast");
+    // For hierarchical broadcasts, participants need to agree on the root
+    // value for different communicators. We don't have that yet so just
+    // default to the mpi broadcast.
+    torch::mpi::thc::broadcast<ScalarType>(state, tensor, root);
+    return stream;
   }
   nccl::thc::broadcast(tensorData, root, nElement, stream, *rInner->ncclComm);
   // TODO: ScopeGuard
@@ -878,14 +891,28 @@ cudaStream_t reduceImpl(THCState* state,
                         int root,
                         ncclRedOp_t ncclRedOp)
 {
+  {
+    // Latency-bound, better go through stock MPI implementation
+    auto nElement = torch::thc::nElement<THTensorType>(state, input);
+    if (nElement <= constants::kSmallBcastSizeGPU) {
+      torch::mpi::thc::reduce<ScalarType>(state, input, output, root, mpiOp(ncclRedOp));
+      return THCState_getCurrentStream(state);
+    }
+  }
+
   PREPARE2_NCCL(state, input, output);
   if (hasInter) {
+    // Release before calling!
     // TODO: ScopeGuard
     releaseCollectiveResources(const_cast<CollectiveResourcesCuda*>(rInner));
     releaseCollectiveResources(const_cast<CollectiveResourcesCuda*>(rOuter));
-    THError("NYI: Multi-node/IPC domain NCCL reduce not yet supported, " \
-            "use the stock MPI broadcast");
+    // For hierarchical broadcasts, participants need to agree on the root
+    // value for different communicators. We don't have that yet so just
+    // default to the mpi broadcast.
+    torch::mpi::thc::reduce<ScalarType>(state, input, output, root, mpiOp(ncclRedOp));
+    return stream;
   }
+
   // Just reduce within node level, the NCCL communicator is unique
   nccl::thc::reduce(
     inputData, outputData, root, nElement, ncclRedOp, stream, *rInner->ncclComm);
@@ -987,33 +1014,33 @@ SynchronizationHandle* allreduceImpl(THCState* state,
 
   // Case 3. Both inter and intra
   auto lambda = [=]() {
-      nccl::thc::allreduce<ScalarType>(inputData,
-                                       outputData,
-                                       nElement,
-                                       ncclRedOp,
-                                       stream,
-                                       *rInner->ncclComm);
-      auto hiPriStreams = torch::mpi::thc::preSyncHiPriStreams(stream);
-      THAssert(hiPriStreams.size() > 0);
-      torch::mpi::thc::detail::allreducep2pCrossNodes<ScalarType>(
-        hasIntra ? outputData : inputData,
-        outputData,
-        nElement,
-        mpiOp(ncclRedOp),
-        rInner->comm->interComm,
-        hiPriStreams);
-      torch::mpi::thc::postSyncHiPriStreams(stream);
-      if (!rInner->comm->cartesian) {
-        nccl::thc::broadcast(outputData,
-                             0,
-                             nElement,
-                             stream,
-                             *rInner->ncclComm);
-      }
-      THCudaCheck(cudaStreamSynchronize(stream));
-      // TODO: ScopeGuard
-      releaseCollectiveResources(const_cast<CollectiveResourcesCuda*>(rInner));
-      releaseCollectiveResources(const_cast<CollectiveResourcesCuda*>(rOuter));
+    nccl::thc::allreduce<ScalarType>(inputData,
+                                     outputData,
+                                     nElement,
+                                     ncclRedOp,
+                                     stream,
+                                     *rInner->ncclComm);
+    auto hiPriStreams = torch::mpi::thc::preSyncHiPriStreams(stream);
+    THAssert(hiPriStreams.size() > 0);
+    torch::mpi::thc::detail::allreducep2pCrossNodes<ScalarType>(
+      hasIntra ? outputData : inputData,
+      outputData,
+      nElement,
+      mpiOp(ncclRedOp),
+      rInner->comm->interComm,
+      hiPriStreams);
+    torch::mpi::thc::postSyncHiPriStreams(stream);
+    if (!rInner->comm->cartesian) {
+      nccl::thc::broadcast(outputData,
+                           0,
+                           nElement,
+                           stream,
+                           *rInner->ncclComm);
+    }
+    THCudaCheck(cudaStreamSynchronize(stream));
+    // TODO: ScopeGuard
+    releaseCollectiveResources(const_cast<CollectiveResourcesCuda*>(rInner));
+    releaseCollectiveResources(const_cast<CollectiveResourcesCuda*>(rOuter));
   };
 
   // Unfortunately trying to mix threads and multiple NCCL communicators

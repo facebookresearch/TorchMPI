@@ -1,6 +1,6 @@
 #! /bin/bash
 
-set -ex
+set -e
 
 if ! command cat '1+1' | bc ; then
     echo "Need program bc to run this test"
@@ -31,14 +31,14 @@ mpirun -n 4 --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mni
 # Parameterserver basic GPU support via CPU
 mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_downpour.lua -usegpu
 mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd.lua -usegpu
-mpirun -n 4  --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd_dataparallel.lua -usegpu
+mpirun -n 4  --bind-to none ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd_dataparallel.lua -usegpu
 
 if test ${HOSTFILE}; then
     # No hostfile, no multi-node for you!
     stat ${HOSTFILE}
 
     # Multi-node tests
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor gpu -tests basic
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor gpu
 
     # Custom hierarchical collectives have both cartesian and non-cartesian communicators, run a loop to test all
     export NUM_GPUS=$(nvidia-smi -L | wc -l)
@@ -56,7 +56,7 @@ if test ${HOSTFILE}; then
     # Parameterserver basic GPU support via CPU
     mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_downpour.lua -usegpu
     mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd.lua -usegpu
-    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none  --mca mpi_cuda_support 0 ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd_dataparallel.lua -usegpu
+    mpirun -n 8 -hostfile ${HOSTFILE} --map-by node --bind-to none ./scripts/wrap.sh ${LUAJIT} ./examples/mnist/mnist_parameterserver_easgd_dataparallel.lua -usegpu
 fi
 
 # TODO: make this work properly in general
