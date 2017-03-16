@@ -15,7 +15,9 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef TORCH_MPI_CUDA
 #include <THC.h>
+#endif
 
 #include "constants.h"
 #include "torch_mpi.h"
@@ -76,36 +78,17 @@ constexpr int kCommunicatorKeyLen = 1024;
 ///////////////////////////////////////////////////////////////////////////////
 // Main entry point to get resources for a collective
 ///////////////////////////////////////////////////////////////////////////////
-enum class CollectiveType {
-  MPIBarrier = 0,
-    MPISendReceive = 1,
-    MPIBroadcast = 2,
-    MPIReduce = 3,
-    MPIAllreduce = 4,
-    NCCLBroadcast = 5,
-    NCCLReduce = 6,
-    NCCLAllreduce = 7,
-    P2PBroadcast = 8,
-    P2PAllreduce = 9
-};
-
 
 struct Communicator;
-
-typedef std::vector<std::vector<cudaEvent_t>> CollectiveIpcEvents;
 
 struct CollectiveResources {
   bool inUse;
   Communicator* comm;
   void* ptr;
-  CollectiveIpcEvents events;
-#ifdef TORCH_MPI_NCCL
-  ncclComm_t* ncclComm;
-#endif
 #ifdef TORCH_MPI_GLOO
   std::shared_ptr<gloo::mpi::Context> glooContext;
 #endif
-  CollectiveResources(void*, const Communicator*, const CollectiveIpcEvents &);
+  CollectiveResources(void*, const Communicator*);
   ~CollectiveResources();
 };
 
@@ -160,8 +143,36 @@ CollectiveResources* acquireCollectiveResources(
   WithGlooContext g = WithGlooContext(),
   WithEvents e = WithEvents());
 void releaseCollectiveResources(CollectiveResources* r);
-void freeCollectiveResource(CollectiveResources* r);
 void freeCollectiveResources();
+
+#ifdef TORCH_MPI_CUDA
+typedef std::vector<std::vector<cudaEvent_t>> CollectiveIpcEvents;
+
+struct CollectiveResourcesCuda : CollectiveResources {
+  CollectiveIpcEvents events;
+#ifdef TORCH_MPI_NCCL
+  ncclComm_t* ncclComm;
+#endif
+  CollectiveResourcesCuda(void*, const Communicator*, const CollectiveIpcEvents &);
+  ~CollectiveResourcesCuda();
+};
+
+typedef std::unordered_map<CollectiveResourcesKey,
+                           CollectiveResourcesCuda*,
+                           CollectiveResourcesHash,
+                           CollectiveResourcesEqual> CollectiveResourcesCudaMap;
+
+CollectiveResourcesCudaMap& collectiveResourcesCuda();
+
+CollectiveResourcesCuda* acquireCollectiveResourcesCuda(
+  void* dataPtr,
+  Spin s = Spin(),
+  WithNCCLComm n = WithNCCLComm(),
+  WithGlooContext g = WithGlooContext(),
+  WithEvents e = WithEvents());
+
+void freeCollectiveResourcesCuda();
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // CommunicatorKey structure used to create communicators
@@ -220,7 +231,9 @@ extern "C" {
     bool hasMPIRequest;
     bool hasFuture;
     bool hasStream;
+#ifdef TORCH_MPI_CUDA
     cudaStream_t stream;
+#endif
     size_t mpiRequestIndex;
     size_t futureIndex;
   } SynchronizationHandle;
@@ -234,7 +247,9 @@ extern "C" {
 
 SynchronizationHandle* synchronizationHandleFromMPIRequest(size_t);
 SynchronizationHandle* synchronizationHandleFromFuture(size_t);
+#ifdef TORCH_MPI_CUDA
 SynchronizationHandle* synchronizationHandleFromStream(cudaStream_t);
+#endif
 SynchronizationHandle* wait(SynchronizationHandle*);
 
 ParameterServerSynchronizationHandle*
@@ -304,7 +319,7 @@ typedef std::vector<std::vector<std::pair<long, long>>> AllReducePlan;
 template<typename PlanType> std::pair<AllReducePlan, AllReducePlan> getPlan(
 size_t totalChunks, size_t currentIndex, size_t prevIndex, size_t commRank, size_t commSize);
 
-#if TORCH_MPI_CUDA
+#ifdef TORCH_MPI_CUDA
 
 namespace cuda {
 

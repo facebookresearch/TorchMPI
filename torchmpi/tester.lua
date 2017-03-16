@@ -99,7 +99,7 @@ tester.runOneConfig = function(tests, nRuns, nSkip, config, printDebug)
             print("Barrier pre freeDescriptors")
          end
          mpi.barrier()
-         if mpicache then mpicache.freeDescriptors() end
+         if mpicache and config.gpu then mpicache.freeDescriptors() end
          mpi.barrier()
       end
 

@@ -13,7 +13,7 @@ LOG_TO_FILE=${LOG_TO_FILE:=}
 
 ARGS=$@
 LOCAL_RANK=${MV2_COMM_WORLD_LOCAL_RANK:=${OMPI_COMM_WORLD_LOCAL_RANK:=${PMI_LOCAL_RANK:=0}}}
-LOCAL_SIZE=${MV2_COMM_WORLD_LOCAL_SIZE:=${OMPI_COMM_WORLD_LOCAL_SIZE:=${PMI_LOCAL_SIZE:=0}}}
+LOCAL_SIZE=${MV2_COMM_WORLD_LOCAL_SIZE:=${OMPI_COMM_WORLD_LOCAL_SIZE:=${PMI_LOCAL_SIZE:=1}}}
 
 if test $(which nvidia-smi); then
     NGPUS=$(nvidia-smi -L | wc -l)
@@ -31,6 +31,7 @@ sockets=$(numactl --hardware | grep -c cpus)
 cores=$(grep -c processor /proc/cpuinfo)
 core_per_socket=$(echo "${cores} / ${sockets}" | bc)
 core_per_process=$(echo "${cores} / ${LOCAL_SIZE}" | bc) # IF hyperthreading IS ENABLED AND we don't want hyperthreading, divide by 2.
+
 
 echo "sockets core_per_socket core_per_process = ${sockets} ${core_per_socket} ${core_per_process}"
 if test -z ${NO_NUMACTL}; then

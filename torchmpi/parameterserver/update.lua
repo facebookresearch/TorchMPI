@@ -86,6 +86,8 @@ Update.update = function(self, step)
    if self.shardingCommunicator == self.dataparallelCommunicator then
       fetchIntegrate = true
    else
+      -- If there is a distinct sharding and dataparallel communicator,
+      -- only rank 0 on the dataparallelCommunicator integrates
       if MPI.rank() == 0 then fetchIntegrate = true end
    end
 
@@ -100,8 +102,8 @@ Update.update = function(self, step)
 
    -- 4. If we combine parameter server with dataparallel,
    -- and we integrated fetches, we need to broadcast from root
-   MPI.C.torchmpi_set_communicator(self.dataparallelCommunicator)
    if self.shardingCommunicator ~= self.dataparallelCommunicator then
+      MPI.C.torchmpi_set_communicator(self.dataparallelCommunicator)
       needBroadcast = MPI.allreduce_double(needBroadcast)
       if needBroadcast > 0 then
          mpinn.synchronizeParameters(self.network)

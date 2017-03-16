@@ -21,7 +21,9 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef TORCH_MPI_CUDA
 #include <THC.h>
+#endif
 
 #ifdef TORCH_MPI_GLOO
 #include <gloo/transport/tcp/device.h>
@@ -29,10 +31,7 @@
 
 using namespace std;
 
-
-
 #include <sstream>
-
 
 #ifdef TORCH_MPI_NCCL
 
@@ -85,36 +84,19 @@ namespace torch { namespace mpi { namespace resources {
 // ffi and freezing constants
 // constants::immutableConstants = true;
 
-CollectiveResources::CollectiveResources(void* p, const Communicator* pc,
-  const CollectiveIpcEvents &cEvents) :
+CollectiveResources::CollectiveResources(void* p, const Communicator* pc) :
     inUse(false),
     comm(new Communicator(*pc)),
-    ptr(p),
-    events(cEvents)
-#ifdef TORCH_MPI_NCCL
-    , ncclComm(nullptr)
-#endif
 #ifdef TORCH_MPI_GLOO
     , glooContext(nullptr)
 #endif
+    ptr(p)
 {
   MAIN_THREAD_GUARD();
 }
 
 CollectiveResources::~CollectiveResources() {
   delete comm;
-#ifdef TORCH_MPI_NCCL
-  if (ncclComm) {
-    ncclCommDestroy(*ncclComm);
-    delete ncclComm;
-  }
-#endif
-}
-
-CollectiveResourcesMap& collectiveResources() {
-  MAIN_THREAD_GUARD();
-  static CollectiveResourcesMap resources;
-  return resources;
 }
 
 CollectiveResources* acquireCollectiveResources(
@@ -129,12 +111,7 @@ CollectiveResources* acquireCollectiveResources(
   CollectiveResourcesKey rk(dataPtr, pComm);
   auto it = resources.find(rk);
   if (it == resources.end()) {
-    auto events = e.with ?
-      torch::mpi::resources::cuda::getCollectiveIPCEvents(
-        constants::kNumBuffersPerCollectiveGPU, pComm->intraComm)
-      :
-      CollectiveIpcEvents();
-    auto r = new CollectiveResources(dataPtr, pComm, events);
+    auto r = new CollectiveResources(dataPtr, pComm);
     barrier(r->comm->intraComm);
     resources.emplace(rk, r);
     it = resources.find(rk);
@@ -154,33 +131,19 @@ CollectiveResources* acquireCollectiveResources(
       }
     }
   }
-
-#ifdef TORCH_MPI_NCCL
-  if (nccl.with && !it->second->ncclComm) {
-    it->second->ncclComm =
-      makeNCCLCommunicator(it->second->comm->intraComm);
-  }
-#endif
-#ifdef TORCH_MPI_GLOO
-  if (gloo.with && !it->second->glooContext) {
-    it->second->glooContext =
-      makeGlooContext(it->second->comm->intraComm);
-  }
-#endif
-
   it->second->inUse = true;
   return it->second;
+}
+
+CollectiveResourcesMap& collectiveResources() {
+  MAIN_THREAD_GUARD();
+  static CollectiveResourcesMap resources;
+  return resources;
 }
 
 void releaseCollectiveResources(CollectiveResources* r) {
   THAssert(r->inUse);
   r->inUse = false;
-}
-
-void freeCollectiveResource(CollectiveResources* r) {
-  MAIN_THREAD_GUARD();
-  THAssert(!r->inUse);
-  delete r;
 }
 
 void freeCollectiveResources() {
@@ -706,6 +669,97 @@ getPlan<CudaPlan>(size_t, size_t, size_t, size_t, size_t);
 
 #if TORCH_MPI_CUDA
 
+CollectiveResourcesCudaMap& collectiveResourcesCuda() {
+  MAIN_THREAD_GUARD();
+  static CollectiveResourcesCudaMap resources;
+  return resources;
+}
+
+CollectiveResourcesCuda::CollectiveResourcesCuda(
+  void* p, const Communicator* pc, const CollectiveIpcEvents &cEvents) :
+    CollectiveResources(p, pc),
+    events(cEvents)
+#ifdef TORCH_MPI_NCCL
+    , ncclComm(nullptr)
+#endif
+{
+  MAIN_THREAD_GUARD();
+}
+
+CollectiveResourcesCuda::~CollectiveResourcesCuda() {
+#ifdef TORCH_MPI_NCCL
+  if (ncclComm) {
+    ncclCommDestroy(*ncclComm);
+    delete ncclComm;
+  }
+#endif
+}
+
+CollectiveResourcesCuda* acquireCollectiveResourcesCuda(
+  void* dataPtr,
+  Spin spin,
+  WithNCCLComm nccl,
+  WithGlooContext gloo,
+  WithEvents e)
+{
+  auto& resources = collectiveResourcesCuda();
+  auto pComm = &getMainThreadCommunicator();
+  CollectiveResourcesKey rk(dataPtr, pComm);
+  auto it = resources.find(rk);
+  if (it == resources.end()) {
+    auto events = e.with ?
+      torch::mpi::resources::cuda::getCollectiveIPCEvents(
+        constants::kNumBuffersPerCollectiveGPU, pComm->intraComm)
+      :
+      CollectiveIpcEvents();
+    auto r = new CollectiveResourcesCuda(dataPtr, pComm, events);
+    barrier(r->comm->intraComm);
+    resources.emplace(rk, r);
+    it = resources.find(rk);
+  } else {
+    ;
+  }
+  if (!spin.spin) {
+    THAssert(!it->second->inUse);
+  } else {
+    int nIterations = 0;
+    while (it->second->inUse) {
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+      nIterations++;
+      if (nIterations >= 100000) {
+        THError("Main thread spinned for 10 seconds waiting for thread to"
+                "release collective resource, this looks like a deadlock!");
+      }
+    }
+  }
+
+#ifdef TORCH_MPI_NCCL
+  if (nccl.with && !it->second->ncclComm) {
+    it->second->ncclComm =
+      makeNCCLCommunicator(it->second->comm->intraComm);
+  }
+#endif
+
+#ifdef TORCH_MPI_GLOO
+  if (gloo.with && !it->second->glooContext) {
+    it->second->glooContext =
+      makeGlooContext(it->second->comm->intraComm);
+  }
+#endif
+
+  it->second->inUse = true;
+  return it->second;
+}
+
+void freeCollectiveResourcesCuda() {
+  auto& cr = collectiveResourcesCuda();
+  for (auto it : cr) {
+    delete it.second;
+  }
+  cr.clear();
+}
+
+
 namespace cuda {
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1101,7 +1155,9 @@ SynchronizationHandle* synchronizationHandleFromMPIRequest(size_t reqIdx) {
   res->mpiRequestIndex = reqIdx;
   res->hasFuture = false;
   res->hasStream = false;
+#ifdef TORCH_MPI_CUDA
   res->stream = reinterpret_cast<cudaStream_t>(-1);
+#endif
   res->futureIndex = static_cast<size_t>(-1);
   return res;
 }
@@ -1112,11 +1168,14 @@ SynchronizationHandle* synchronizationHandleFromFuture(size_t fIdx) {
   res->futureIndex = fIdx;
   res->hasMPIRequest = false;
   res->hasStream = false;
+#ifdef TORCH_MPI_CUDA
   res->stream = reinterpret_cast<cudaStream_t>(-1);
+#endif
   res->mpiRequestIndex = static_cast<size_t>(-1);
   return res;
 }
 
+#ifdef TORCH_MPI_CUDA
 SynchronizationHandle* synchronizationHandleFromStream(cudaStream_t s) {
   SynchronizationHandle* res = new SynchronizationHandle();
   res->hasStream = true;
@@ -1127,6 +1186,7 @@ SynchronizationHandle* synchronizationHandleFromStream(cudaStream_t s) {
   res->futureIndex = static_cast<size_t>(-1);
   return res;
 }
+#endif
 
 SynchronizationHandle* wait(SynchronizationHandle* sh) {
   if (!sh) {
@@ -1134,7 +1194,9 @@ SynchronizationHandle* wait(SynchronizationHandle* sh) {
   }
   if (sh->hasMPIRequest) { syncMPIRequest(sh->mpiRequestIndex); }
   if (sh->hasFuture) { syncCollectiveFuture(sh->futureIndex); }
+#ifdef TORCH_MPI_CUDA
   if (sh->hasStream) { THCudaCheck(cudaStreamSynchronize(sh->stream)); }
+#endif
   delete sh;
   return nullptr;
 }
