@@ -34,6 +34,10 @@
   } while(0)
 #endif
 
+#ifdef TORCH_MPI_GLOO
+#include <gloo/mpi/context.h>
+#endif
+
 #define DEBUG 0
 
 #if DEBUG
@@ -98,6 +102,9 @@ struct CollectiveResources {
 #ifdef TORCH_MPI_NCCL
   ncclComm_t* ncclComm;
 #endif
+#ifdef TORCH_MPI_GLOO
+  std::shared_ptr<gloo::mpi::Context> glooContext;
+#endif
   CollectiveResources(void*, const Communicator*, const CollectiveIpcEvents &);
   ~CollectiveResources();
 };
@@ -138,6 +145,10 @@ struct WithNCCLComm {
   bool with;
   explicit WithNCCLComm(bool w = false) : with(w) {}
 };
+struct WithGlooContext {
+  bool with;
+  explicit WithGlooContext(bool w = false) : with(w) {}
+};
 struct WithEvents {
   bool with;
   explicit WithEvents(bool w = false) : with(w) {}
@@ -146,6 +157,7 @@ CollectiveResources* acquireCollectiveResources(
   void* dataPtr,
   Spin s = Spin(),
   WithNCCLComm n = WithNCCLComm(),
+  WithGlooContext g = WithGlooContext(),
   WithEvents e = WithEvents());
 void releaseCollectiveResources(CollectiveResources* r);
 void freeCollectiveResource(CollectiveResources* r);

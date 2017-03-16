@@ -15,6 +15,12 @@
 
 #include "resources.h"
 
+#if TORCH_MPI_GLOO
+#include <gloo/cuda_allreduce_ring.h>
+#include <gloo/cuda_allreduce_ring_chunked.h>
+#include <gloo/cuda_broadcast_one_to_all.h>
+#endif
+
 /**********************************************************************
  ******************************** MPI *********************************
  **********************************************************************/
@@ -52,11 +58,23 @@ namespace torch { namespace mpi { namespace thc {
   auto hasIntra = getMainThreadCommunicator().hasIntraCollective();     \
   auto hasInter = getMainThreadCommunicator().hasInterCollective();
 
+#define PREPARE_GLOO(state, tensor)                                     \
+  PREPARE(state, tensor);                                               \
+  CommunicatorGuard csInner(getCollectiveSpan().second);                \
+  const CollectiveResources* rInner =                                   \
+    acquireCollectiveResources(tensorData,                              \
+                               Spin(true),                              \
+                               WithNCCLComm(false),                     \
+                               WithGlooContext(true));                  \
+  auto hasIntra = getMainThreadCommunicator().hasIntraCollective();     \
+  auto hasInter = getMainThreadCommunicator().hasInterCollective();
+
 #define PREPARE_IPC(state, tensor)                                      \
   PREPARE(state, tensor);                                               \
   CommunicatorGuard csInner(getCollectiveSpan().second);                \
   const CollectiveResources* rInner = acquireCollectiveResources(       \
-    tensorData, Spin(true), WithNCCLComm(false), WithEvents(true));     \
+    tensorData, Spin(true), WithNCCLComm(false),                        \
+    WithGlooContext(false), WithEvents(true));                          \
   auto tensorDataBasePtr =                                              \
     torch::thc::data<ScalarType, THTensorType>(state, tensor) -         \
     tensor->storageOffset;                                              \
@@ -96,11 +114,26 @@ namespace torch { namespace mpi { namespace thc {
   auto hasIntra = getMainThreadCommunicator().hasIntraCollective();     \
   auto hasInter = getMainThreadCommunicator().hasInterCollective();
 
+#define PREPARE2_GLOO(state, input, output)                             \
+  if (input != output) {                                                \
+    THError("GLOO only supports inplace collectives");                  \
+  }                                                                     \
+  PREPARE2(state, input, output);                                       \
+  CommunicatorGuard csInner(getCollectiveSpan().second);                \
+  const CollectiveResources* rInner =                                   \
+    acquireCollectiveResources(inputData,                               \
+                               Spin(true),                              \
+                               WithNCCLComm(false),                     \
+                               WithGlooContext(true));                  \
+  auto hasIntra = getMainThreadCommunicator().hasIntraCollective();     \
+  auto hasInter = getMainThreadCommunicator().hasInterCollective();
+
 #define PREPARE2_IPC(state, input, output)                              \
   PREPARE2(state, input, output);                                       \
   CommunicatorGuard csInner(getCollectiveSpan().second);                \
   const CollectiveResources* rInner = acquireCollectiveResources(       \
-    inputData, Spin(true), WithNCCLComm(false), WithEvents(true));      \
+    inputData, Spin(true), WithNCCLComm(false),                         \
+    WithGlooContext(true), WithEvents(true));                           \
   auto outputDataBasePtr =                                              \
     torch::thc::data<ScalarType, THTensorType>(state, output) -         \
     output->storageOffset;                                              \
@@ -1019,6 +1052,131 @@ SynchronizationHandle* allreduceAsync(THCState* state,
 
 #endif
 
+// ns mpi::th
+
+#ifdef TORCH_MPI_GLOO
+
+namespace gloo { namespace thc {
+
+// Collectives operating on THCuda*Tensor
+template<typename ScalarType>
+cudaStream_t broadcast(ScalarType* tensorData,
+                       int root,
+                       size_t nElement,
+                       cudaStream_t stream,
+                       const shared_ptr<::gloo::mpi::Context>& context)
+{
+  ::gloo::CudaBroadcastOneToAll<ScalarType> broadcast(
+      context, {tensorData}, nElement, root, 0, {stream});
+  broadcast.run();
+
+  THCudaCheck(cudaGetLastError());
+  return stream;
+}
+
+template<typename ScalarType, typename THTensorType>
+cudaStream_t broadcastImpl(THCState* state, THTensorType* tensor, int root) {
+  PREPARE_GLOO(state, tensor);
+  gloo::thc::broadcast(tensorData, root, nElement, stream, rInner->glooContext);
+  // TODO: ScopeGuard
+  releaseCollectiveResources(const_cast<CollectiveResources*>(rInner));
+  releaseCollectiveResources(const_cast<CollectiveResources*>(rOuter));
+  return stream;
+}
+
+template<typename ScalarType, typename THTensorType>
+void broadcast(THCState* state, THTensorType* tensor, int root) {
+  THCudaCheck(cudaStreamSynchronize(
+    gloo::thc::broadcastImpl<ScalarType, THTensorType>(
+      state, tensor, root)));
+}
+
+template<typename ScalarType, typename THTensorType>
+SynchronizationHandle*
+broadcastAsync(THCState* state, THTensorType* tensor, int root) {
+  return synchronizationHandleFromStream(
+    gloo::thc::broadcastImpl<ScalarType, THTensorType>(
+      state, tensor, root));
+}
+
+void checkReduceFunction(MPI::Op redOpt) {
+  // Gloo doesn't support non-MPI_SUM for gpus (oversight?)
+  if (redOpt != MPI::Op(MPI_SUM)) {
+    THError("Only MPI_SUM supported by Gloo and MPI");
+  }
+}
+
+template<typename ScalarType>
+cudaStream_t allreduce(ScalarType* inputData,
+                       ScalarType* outputData,
+                       size_t nElement,
+                       MPI::Op mpiRedOp,
+                       cudaStream_t stream,
+                       const shared_ptr<::gloo::mpi::Context>& context) {
+  checkReduceFunction(mpiRedOp);
+  std::vector<ScalarType *> v { inputData };
+
+  // RingChunked does not work without inplace since it requires
+  // each ptr element to be on a separate device.
+  if (nElement <= mpi::constants::kSmallAllreduceSizeGPU
+      || inputData != outputData) {
+    ::gloo::CudaAllreduceRing<ScalarType> allreduce(
+      context, v, nElement);
+    allreduce.run();
+  } else {
+    ::gloo::CudaAllreduceRingChunked<ScalarType> allreduce(
+      context, v, nElement);
+    allreduce.run();
+  }
+  THCudaCheck(cudaGetLastError());
+  return stream;
+}
+
+template<typename ScalarType, typename THTensorType>
+SynchronizationHandle* allreduceImpl(THCState* state,
+                                     THTensorType* input,
+                                     THTensorType* output,
+                                     MPI::Op mpiRedOp)
+{
+  PREPARE2_GLOO(state, input, output);
+
+  // TODO: use high priority streams?
+  auto res = synchronizationHandleFromStream(
+    gloo::thc::allreduce<ScalarType>(inputData,
+                                     outputData,
+                                     nElement,
+                                     mpiRedOp,
+                                     stream,
+                                     rInner->glooContext));
+  // TODO: ScopeGuard
+  releaseCollectiveResources(const_cast<CollectiveResources*>(rInner));
+  releaseCollectiveResources(const_cast<CollectiveResources*>(rOuter));
+  return res;
+}
+
+template<typename ScalarType, typename THTensorType>
+void allreduce(THCState* state,
+               THTensorType* input,
+               THTensorType* output,
+               MPI::Op mpiRedOp) {
+  resources::wait(
+    gloo::thc::allreduceImpl<ScalarType, THTensorType>(
+      state, input, output, mpiRedOp));
+}
+
+template<typename ScalarType, typename THTensorType>
+SynchronizationHandle* allreduceAsync(THCState* state,
+                       THTensorType* input,
+                       THTensorType* output,
+                       MPI::Op mpiRedOp) {
+  return gloo::thc::allreduceImpl<ScalarType, THTensorType>(
+    state, input, output, mpiRedOp);
+}
+
+}} // ns gloo::thc
+
+#endif
+
 } // ns torch
 
 
@@ -1085,6 +1243,20 @@ extern "C" {
   SynchronizationHandle* PPCAT(torchmpi_async_nccl_broadcast_, THCTensorType) \
     (THCState* state, THCTensorType *input, int root) {                 \
     return torch::nccl::thc::broadcastAsync<ScalarType, THCTensorType>( \
+      state, input, root);                                              \
+  }
+
+#define DEFINE_GLOO_BROADCAST(ScalarType, THCTensorType)        \
+  void PPCAT(torchmpi_gloo_broadcast_, THCTensorType)           \
+    (THCState* state, THCTensorType *input, int root) {         \
+  torch::gloo::thc::broadcast<ScalarType, THCTensorType>(       \
+    state, input, root);                                        \
+  }
+
+#define DEFINE_GLOO_BROADCAST_ASYNC(ScalarType, THCTensorType)          \
+  SynchronizationHandle* PPCAT(torchmpi_async_gloo_broadcast_, THCTensorType) \
+    (THCState* state, THCTensorType *input, int root) {                 \
+    return torch::gloo::thc::broadcastAsync<ScalarType, THCTensorType>( \
       state, input, root);                                              \
   }
 
@@ -1170,6 +1342,20 @@ extern "C" {
       state, input, output, ncclSum);                                   \
   }
 
+#define DEFINE_GLOO_ALLREDUCE(ScalarType, THCTensorType)                \
+  void PPCAT(torchmpi_gloo_allreduce_, THCTensorType)(                  \
+    THCState* state, THCTensorType *input, THCTensorType *output) {     \
+    torch::gloo::thc::allreduce<ScalarType, THCTensorType>(             \
+      state, input, output, MPI_SUM);                                   \
+  }
+
+#define DEFINE_GLOO_ALLREDUCE_ASYNC(ScalarType, THCTensorType)          \
+  SynchronizationHandle* PPCAT(torchmpi_async_gloo_allreduce_, THCTensorType)( \
+    THCState* state, THCTensorType *input, THCTensorType *output) {     \
+    return torch::gloo::thc::allreduceAsync<ScalarType, THCTensorType>( \
+      state, input, output, MPI_SUM);                                   \
+  }
+
 /*********************** Sendreceive **********************************/
 #define DEFINE_SENDRECEIVE(ScalarType, THCTensorType)                   \
   void PPCAT(torchmpi_sendreceive_, THCTensorType)                      \
@@ -1198,10 +1384,7 @@ extern "C" {
   DEFINE_SENDRECEIVE(CPP_TYPE, THC_TENSOR_TYPE);
 
 #ifdef TORCH_MPI_NCCL
-#define FUNCTIONS_TO_INSTANTIATE(                               \
-  CPP_TYPE, TH_TENSOR_TYPE, THC_TENSOR_TYPE)                    \
-  FUNCTIONS_TO_INSTANTIATE_ALWAYS(                              \
-    CPP_TYPE, TH_TENSOR_TYPE, THC_TENSOR_TYPE);                 \
+#define DEFINE_NCCL_FUNCTIONS(CPP_TYPE, THC_TENSOR_TYPE)        \
   DEFINE_NCCL_BROADCAST(CPP_TYPE, THC_TENSOR_TYPE);             \
   DEFINE_NCCL_BROADCAST_ASYNC(CPP_TYPE, THC_TENSOR_TYPE);       \
   DEFINE_NCCL_REDUCE(CPP_TYPE, THC_TENSOR_TYPE);                \
@@ -1209,11 +1392,25 @@ extern "C" {
   DEFINE_NCCL_ALLREDUCE(CPP_TYPE, THC_TENSOR_TYPE);             \
   DEFINE_NCCL_ALLREDUCE_ASYNC(CPP_TYPE, THC_TENSOR_TYPE);
 #else
-#define FUNCTIONS_TO_INSTANTIATE(               \
-  CPP_TYPE, TH_TENSOR_TYPE, THC_TENSOR_TYPE)    \
-  FUNCTIONS_TO_INSTANTIATE_ALWAYS(              \
-    CPP_TYPE, TH_TENSOR_TYPE, THC_TENSOR_TYPE);
+#define DEFINE_NCCL_FUNCTIONS(CPP_TYPE, THC_TENSOR_TYPE)
 #endif
+
+#ifdef TORCH_MPI_GLOO
+#define DEFINE_GLOO_FUNCTIONS(CPP_TYPE, THC_TENSOR_TYPE)        \
+  DEFINE_GLOO_BROADCAST(CPP_TYPE, THC_TENSOR_TYPE);             \
+  DEFINE_GLOO_BROADCAST_ASYNC(CPP_TYPE, THC_TENSOR_TYPE);       \
+  DEFINE_GLOO_ALLREDUCE(CPP_TYPE, THC_TENSOR_TYPE);             \
+  DEFINE_GLOO_ALLREDUCE_ASYNC(CPP_TYPE, THC_TENSOR_TYPE)
+#else
+#define DEFINE_GLOO_FUNCTIONS(CPP_TYPE, THC_TENSOR_TYPE)
+#endif
+
+#define FUNCTIONS_TO_INSTANTIATE(                               \
+  CPP_TYPE, TH_TENSOR_TYPE, THC_TENSOR_TYPE)                    \
+  FUNCTIONS_TO_INSTANTIATE_ALWAYS(                              \
+    CPP_TYPE, TH_TENSOR_TYPE, THC_TENSOR_TYPE);                 \
+  DEFINE_NCCL_FUNCTIONS(CPP_TYPE, THC_TENSOR_TYPE);             \
+  DEFINE_GLOO_FUNCTIONS(CPP_TYPE, THC_TENSOR_TYPE);
 
 #include "generic/torch_collectives_wrappers.cpp.in"
 
