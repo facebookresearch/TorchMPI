@@ -70,7 +70,7 @@ local nRuns = config.benchmark and 10 + nSkip or 1
 
 -- If using GPUs, set the GPU before initializing MPI
 local mpi = require('torchmpi')
-mpi.start(true, config.tests ~= 'nccl')
+mpi.start(config.processor ~= "cpu", config.tests ~= 'nccl')
 
 if config.hierarchical == 'true' then
   mpi.C.torchmpi_set_hierarchical_collectives()
