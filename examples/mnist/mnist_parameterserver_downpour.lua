@@ -15,10 +15,11 @@ local tnt = require('torchnet')
 local cmd = torch.CmdLine()
 cmd:option('-usegpu', false, 'use gpu for training')
 cmd:option('-seed', 1111, 'use gpu for training')
-cmd:option('-prefetch', 5, 'prefetch distance for asynchronous communications')
-cmd:option('-tau', 10, 'communication cycle length for parameterserver (see easgd paper, we reuse the notation)')
-cmd:option('-tauInitDelay', 20, 'delay the first communication to let the networks search a bit independently')
-cmd:option('-tauSendFrequency', 1, 'frequency at which we perform async sends')
+cmd:option('-prefetch', 25, 'prefetch distance for asynchronous communications')
+cmd:option('-tau', 50, 'communication cycle length for parameterserver (see easgd paper, we reuse the notation)')
+cmd:option('-initDelay', 20, 'delay the first communication to let the networks search a bit independently')
+cmd:option('-sendFrequency', 25, 'frequency at which we perform async sends')
+cmd:option('-momentum', 0.9, 'see EASGD paper')
 
 local config = cmd:parse(arg)
 print(string.format('running on %s', config.usegpu and 'GPU' or 'CPU'))
@@ -28,7 +29,6 @@ local mpi = require('torchmpi')
 -- mpi.start sets the GPU automatically
 mpi.start(config.usegpu)
 local mpinn = require('torchmpi.nn')
-local cache = require('torchmpi.cache')
 local parameterserver = require('torchmpi.parameterserver')
 
 -- Set the random seed manually for reproducibility.
@@ -46,7 +46,6 @@ engine.hooks.onStartEpoch = function(state)
    meter:reset()
    clerr:reset()
 end
-
 engine.hooks.onForwardCriterion = function(state)
    meter:add(state.criterion.output)
    clerr:add(state.network.output, state.sample.target)
@@ -56,54 +55,42 @@ engine.hooks.onForwardCriterion = function(state)
    end
 end
 
-local initParameterServer = config.tauInitDelay
-local nextPrefetch = config.tauInitDelay + config.tau + config.prefetch
-local nextIntegration = config.tauInitDelay + config.tau
-local nextSend = config.tauInitDelay + config.tauSendFrequency
-assert(config.prefetch >= 0 and config.prefetch <= config.tau) -- prefetch needs to make sense ..
-
-local handlesSend = {}
-local handlesPrefetch = {}
+local momentumTensorReferences = {}
 engine.hooks.onBackward = function(state)
-   assert(nextPrefetch >= state.t)    -- skipped a beat ..
-   assert(nextIntegration >= state.t) -- skipped a beat ..
-   if state.t == initParameterServer then
-      local p, g  = state.network:parameters()
-      parameterserver.initTensors(p)
+   if config.momentum and config.momentum ~= 0 then
+      -- Disable Torchnet update rule once and for all
+      state.lrSave = state.lrSave or state.lr
+      state.lr = 0
    end
-   if state.t == nextPrefetch then
-      local p, g  = state.network:parameters()
-      handlesPrefetch = parameterserver.prefetchTensors(p)
-      nextPrefetch = nextPrefetch + config.tau
+   local lr = state.lrSave or state.lr
+   -- Create a local Downpour update rule if necessary
+   state.downpourUpdate = state.downpourUpdate or
+      mpi.DownpourUpdate{
+         network = state.network,
+         updateFrequency = config.tau,
+         initDelay = config.initDelay,
+         prefetch = config.prefetch,
+         sendFrequency = config.sendFrequency,
+         -- This applies locally just before sending to the server
+         localUpdate = function(t) t:mul(-lr); return t end
+      }
+   -- Apply it
+   state.downpourUpdate:update(state.t)
+   -- Perform SGD step with momentum if necessary
+   if config.momentum and config.momentum ~= 0 then
+      local w, gw = state.network:parameters()
+      for i = 1, #w do
+         local p, g = w[i], gw[i]
+         -- Nesterov's accelerated gradient rewritten as in Bengio's
+         -- http://arxiv.org/pdf/1212.0901.pdf
+         -- Note that originally momentumTensorReferences[p] = 0
+         momentumTensorReferences[p] =
+            momentumTensorReferences[p] or p:clone():zero()
+         p:add(config.momentum * config.momentum, momentumTensorReferences[p])
+            :add( -(1 + config.momentum) * lr, g)
+         momentumTensorReferences[p]:mul(config.momentum):add(-lr, g)
+      end
    end
-   if state.t == nextIntegration then
-      -- Make sure prefetches completed, you can also play with disabling this
-      handlesPrefetch = parameterserver.syncHandles(handlesPrefetch)
-      local p, g  = state.network:parameters()
-      parameterserver.integrateTensors(p,
-                                       function(pref, t) t:copy(pref) end)
-      nextIntegration = nextIntegration + config.tau
-   end
-   if state.t == nextSend then
-      local p, g  = state.network:parameters()
-      handlesSend = parameterserver.sendTensors(
-         p,
-         g,
-         'add',
-         function(t) t:mul(-state.lr); return t end)
-      handlesSend = parameterserver.syncHandles(handlesSend)
-      nextSend = nextSend + config.tauSendFrequency
-   end
-   -- Disable torchnet.engine SGD step, downpour already took care of it
-   -- TODO: do this better
-   state.lrSave = state.lr
-   state.lr = 0
-end
-
--- 6. Reenable torchnet.engine SGD step with the last lr
--- TODO: do this better
-engine.hooks.onUpdate = function(state)
-   state.lr = state.lrSave
 end
 
 -- set up GPU training:

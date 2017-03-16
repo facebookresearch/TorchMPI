@@ -1,4 +1,4 @@
-package = "torch_mpi"
+package = "torchmpi"
 version = "scm-1"
 
 source = {
@@ -30,5 +30,5 @@ build = {
       MPI_C_COMPILER="${MPI_C_COMPILER}",
       MPI_CXX_COMPILER="${MPI_CXX_COMPILER}",
       CMAKE_PREFIX_PATH="$(LUA_BINDIR)/..", -- to find torch
-   },
+   }
 }

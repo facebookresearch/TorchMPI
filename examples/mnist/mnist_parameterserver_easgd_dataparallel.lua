@@ -25,9 +25,15 @@ local config = cmd:parse(arg)
 print(string.format('running on %s', config.usegpu and 'GPU' or 'CPU'))
 
 local mpi = require('torchmpi')
--- The model we use for GPU + MPI is 1 Lua/Terra process for 1 GPU
--- mpi.start sets the GPU automatically
-mpi.start(config.usegpu)
+-- Create a mock communicator with k-way dataparallel
+local div = 3 -- 3 here is to stress tests dataparallel workers with different sizes
+local function customCommunicatorInit()
+   local res =
+      mpi.C.torchmpi_push_communicator(tostring(math.ceil((mpi.rank() + 1) / div)));
+   assert(res == 1)
+   return res
+end
+mpi.start(config.usegpu, false, customCommunicatorInit)
 local mpinn = require('torchmpi.nn')
 local parameterserver = require('torchmpi.parameterserver')
 
@@ -57,16 +63,23 @@ end
 
 local momentumTensorReferences = {}
 engine.hooks.onBackward = function(state)
+   -- First, Allreduce gradients everywhere
+   -- for mixed dataparallel + parameterserver
+   mpi.C.torchmpi_set_communicator(1)
+   mpinn.synchronizeGradients(state.network)
+
    if config.momentum and config.momentum ~= 0 then
       -- Disable Torchnet update rule once and for all
       state.lrSave = state.lrSave or state.lr
       state.lr = 0
    end
    local lr = state.lrSave or state.lr
-   -- Create a local EASGDupdate rule if necessary
+
+   -- Create a local Downpour update rule if necessary
    state.easgdUpdate = state.easgdUpdate or
       mpi.EASGDUpdate{
          network = state.network,
+         dataparallelCommunicator = 1,
          beta = config.beta,
          updateFrequency = config.tau,
          initDelay = config.initDelay,
