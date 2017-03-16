@@ -10,7 +10,7 @@ require('torch')
 
 local cmd = torch.CmdLine()
 cmd:option('-benchmark', false, 'skip correctness check and benchmark performance instead')
-cmd:option('-tests', 'all', 'Options: all | allselector | basic | p2p | nccl')
+cmd:option('-tests', 'all', 'Options: all | allselector | basic | p2p | nccl | gloo')
 cmd:option('-processor', 'both', 'Options: gpu | cpu | both')
 cmd:option('-execution', 'both', 'Options: sync | async | both: Dispatch collectives asynchronously and wait for handle before checking')
 cmd:option('-storage', 'both', 'Options: inplace | copy | both: run inPlace or not')
@@ -23,7 +23,8 @@ cmd:option('-maxSizeForTreeBasedBroadcast', bit.lshift(1, 22), "Maximum size to 
 
 local config = cmd:parse(arg)
 assert(config.tests == 'all' or config.tests == 'allselector' or
-       config.tests == 'basic' or config.tests == 'p2p' or config.tests == 'nccl')
+       config.tests == 'basic' or config.tests == 'p2p' or
+       config.tests == 'nccl' or config.tests == 'gloo')
 
 local gpuTable = nil
 if config.processor == 'gpu' then
@@ -105,14 +106,18 @@ local function getCollectives()
       local sel = mpi.collectiveSelector
       sel = config.gpu and sel.gpu or sel.cpu
       sel = config.singlenode and sel.singlenode or sel.multinode
-      return config.async and sel.async or sel
+      sel = config.async and sel.async or sel.sync
+      return sel
    else
       local sel = mpi
+      sel = config.async and sel.async or sel
       if config.nccl then
          sel = mpi.hasNCCL and sel.nccl or nil
       end
+      if config.gloo then
+         sel = mpi.hasGloo and sel.gloo or nil
+      end
       if sel ~= nil then
-        sel = config.async and sel.async or sel
         sel = config.p2p and sel.p2p or sel
       end
 
@@ -122,7 +127,8 @@ end
 
 local function collectiveAvailable(ns, collective)
    if config.tests == "all" then
-      local funcname = "MPI" .. (config.nccl and ".nccl" or "" )
+      local funcname = "MPI" .. (config.nccl and ".nccl" or "")
+         .. (config.gloo and ".gloo" or "")
          .. (config.async and ".async" or "") .. (config.p2p and ".p2p." or ".")
          .. collective
       local availability = config.gpu and
@@ -264,12 +270,18 @@ tests.allreduce.test = function(input, output, firstRun)
 end
 
 -- Careful, precision counts here once we reach a certain size
-tests.allreduce.check = function(input, output)
+tests.allreduce.check = function(input, output, inputClone)
    local val = (mpi.size() * (mpi.size() - 1)) / 2
    local min, max = output:min(), output:max()
    if min ~= val or max ~= val then
       error(('[%d/%d] %f-%f vs expected %f (size %d)\n'):format(
             mpi:rank(), mpi:size(), min, max, val, output:nElement()))
+   end
+
+   -- check inPlace didn't write to input
+   if not config.inPlace then
+      assert((input - inputClone):abs():max() == 0,
+         "input changed after non inplace collective")
    end
 end
 
@@ -363,7 +375,7 @@ local function setImplemented()
       -- Disable because it deadlocks on multi-machines
       tests.customBarrier.implemented = false
       tests.broadcast.implemented = true
-   -- No async sendreceivenextGPU reduce
+      -- No async sendreceivenextGPU reduce
       tests.reduce.implemented = not (config.async and config.gpu)
       tests.allreduce.implemented = true
    elseif config.tests == "p2p" then
@@ -373,6 +385,9 @@ local function setImplemented()
       tests.broadcast.implemented = mpi.hasNCCL
       tests.reduce.implemented = mpi.hasNCCL
       tests.allreduce.implemented = mpi.hasNCCL
+   elseif config.tests == "gloo" then
+      tests.broadcast.implemented = mpi.hasGloo and config.inPlace
+      tests.allreduce.implemented = mpi.hasGloo and config.inPlace
    end
 end
 
@@ -382,6 +397,16 @@ local function ncclTable(gpu)
    elseif config.tests == "all" and not gpu then
       return {false}
    elseif config.tests == "nccl" then
+      return {true}
+   else
+      return {false}
+   end
+end
+
+local function glooTable(inPlace, nccl, p2p)
+   if config.tests == "all" then
+      return (inPlace and not nccl and not p2p) and {false, true} or {false}
+   elseif config.tests == "gloo" then
       return {true}
    else
       return {false}
@@ -411,14 +436,17 @@ else
                              or config.tests == "p2p" and {true} or {false}
             for _, p2p in ipairs(p2pTable) do
                for _, nccl in ipairs(ncclTable(gpu)) do
-                  config.async = async
-                  config.gpu = gpu
-                  config.inPlace = inPlace
-                  config.nccl = nccl
-                  config.p2p = p2p
-                  setImplemented()
-                  tester.runOneConfig(tests, nRuns, nSkip, config)
-                end
+                  for _, gloo in ipairs(glooTable(inPlace, nccl, p2p)) do
+                     config.async = async
+                     config.gpu = gpu
+                     config.inPlace = inPlace
+                     config.nccl = nccl
+                     config.gloo = gloo
+                     config.p2p = p2p
+                     setImplemented()
+                     tester.runOneConfig(tests, nRuns, nSkip, config)
+                   end
+               end
             end
          end
       end

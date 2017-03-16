@@ -23,6 +23,10 @@
 
 #include <THC.h>
 
+#ifdef TORCH_MPI_GLOO
+#include <gloo/transport/tcp/device.h>
+#endif
+
 using namespace std;
 
 
@@ -56,6 +60,19 @@ ncclComm_t* makeNCCLCommunicator(const MPI::Intracomm& localComm) {
 
 #endif
 
+#ifdef TORCH_MPI_GLOO
+std::shared_ptr<gloo::mpi::Context> makeGlooContext(const MPI::Intracomm &localComm) {
+  // TODO: ibverbs support.
+  auto dev = gloo::transport::tcp::CreateDevice("");
+
+  // Create Gloo context from MPI communicator
+  auto context = std::make_shared<gloo::mpi::Context>(localComm);
+  context->connectFullMesh(dev);
+
+  return context;
+}
+#endif
+
 namespace torch { namespace mpi { namespace resources {
 
 #define MAIN_THREAD_GUARD()                                             \
@@ -76,6 +93,9 @@ CollectiveResources::CollectiveResources(void* p, const Communicator* pc,
     events(cEvents)
 #ifdef TORCH_MPI_NCCL
     , ncclComm(nullptr)
+#endif
+#ifdef TORCH_MPI_GLOO
+    , glooContext(nullptr)
 #endif
 {
   MAIN_THREAD_GUARD();
@@ -101,6 +121,7 @@ CollectiveResources* acquireCollectiveResources(
   void* dataPtr,
   Spin spin,
   WithNCCLComm nccl,
+  WithGlooContext gloo,
   WithEvents e)
 {
   auto& resources = collectiveResources();
@@ -136,8 +157,14 @@ CollectiveResources* acquireCollectiveResources(
 
 #ifdef TORCH_MPI_NCCL
   if (nccl.with && !it->second->ncclComm) {
-  it->second->ncclComm =
-    makeNCCLCommunicator(it->second->comm->intraComm);
+    it->second->ncclComm =
+      makeNCCLCommunicator(it->second->comm->intraComm);
+  }
+#endif
+#ifdef TORCH_MPI_GLOO
+  if (gloo.with && !it->second->glooContext) {
+    it->second->glooContext =
+      makeGlooContext(it->second->comm->intraComm);
   }
 #endif
 
@@ -1144,4 +1171,11 @@ extern "C" {
 #endif
   }
 
+  int torchmpi_has_gloo() {
+#ifdef TORCH_MPI_GLOO
+    return 1;
+#else
+    return 0;
+#endif
+  }
 }

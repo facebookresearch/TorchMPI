@@ -46,6 +46,9 @@ MPI.start = function(withCuda, ipcGroups, customCommunicatorInit)
    MPI.hasNCCL = (MPI.C.torchmpi_has_nccl() ~= 0) and true or false
    if MPI.hasNCCL then setupNCCL() end
 
+   MPI.hasGloo = (MPI.C.torchmpi_has_gloo() ~= 0) and true or false
+   if MPI.hasGloo then setupGloo() end
+
    MPI.C.torchmpi_start()
 
    if MPI.withCuda then
@@ -308,6 +311,34 @@ setupNCCL = function()
    --]]
 end
 
+setupGloo= function()
+   --------------------- Synchronous collectives CPU only -------------------------
+   MPI.gloo = {}
+
+   MPI.gloo.broadcastTensor = function(rank, tensor)
+      local fun = 'torchmpi_gloo_broadcast_TH'..torch.type(tensor):gsub('torch.', '')
+      return MPI.syncHandle(wrap.executeMPICFun(fun, tensor, rank))
+   end
+
+   MPI.gloo.allreduceTensor = function(input, output)
+      local fun = 'torchmpi_gloo_allreduce_TH'..torch.type(input):gsub('torch.', '')
+      return MPI.syncHandle(wrap.executeMPICFun2(fun, input, output or input))
+   end
+
+   --------------------- Asynchronous collectives CPU only------------------------
+   MPI.async.gloo = {}
+
+   MPI.async.gloo.broadcastTensor = function(rank, tensor)
+      local fun = 'torchmpi_async_gloo_broadcast_TH'..torch.type(tensor):gsub('torch.', '')
+      return wrap.executeMPICFun(fun, tensor, rank)
+   end
+
+   MPI.async.gloo.allreduceTensor = function(input, output)
+      local fun = 'torchmpi_async_gloo_allreduce_TH'..torch.type(input):gsub('torch.', '')
+      return wrap.executeMPICFun2(fun, input, output or input)
+   end
+end
+
 -- Performs sanity checks using MPI.allreduceTensor
 -- The simple idea is that if distributed quantities are the same,
 -- their mean by an allreduce should be the same modulo precision errors.
@@ -409,28 +440,28 @@ configureCollectiveSelector = function()
       cpu = {
          singlenode = {
             sync = {
-               allreduceTensor = MPI.p2p.allreduceTensor,
-               broadcastTensor = MPI.broadcastTensor,
+               allreduceTensor = MPI.p2p.allreduceTensor or (MPI.gloo and MPI.gloo.allreduceTensor),
+               broadcastTensor = MPI.broadcastTensor or (MPI.gloo and MPI.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,
                sendreceiveTensor = MPI.sendreceiveTensor,
             },
             async = {
-               allreduceTensor = MPI.async.p2p.allreduceTensor,
-               broadcastTensor = MPI.async.broadcastTensor,
+               allreduceTensor = MPI.async.p2p.allreduceTensor or (MPI.gloo and MPI.async.gloo.allreduceTensor),
+               broadcastTensor = MPI.async.broadcastTensor or (MPI.gloo and MPI.async.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,           -- OpenMPI-1.8  async version seems bugged ??
                sendreceiveTensor = MPI.sendreceiveTensor, -- no async version
             },
          },
          multinode = {
             sync = {
-               allreduceTensor = MPI.p2p.allreduceTensor,
-               broadcastTensor = MPI.broadcastTensor,
+               allreduceTensor = MPI.p2p.allreduceTensor or (MPI.gloo and MPI.gloo.allreduceTensor),
+               broadcastTensor = MPI.broadcastTensor or (MPI.gloo and MPI.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,
                sendreceiveTensor = MPI.sendreceiveTensor,
             },
             async = {
-               allreduceTensor = MPI.async.p2p.allreduceTensor,
-               broadcastTensor = MPI.async.broadcastTensor,
+               allreduceTensor = MPI.async.p2p.allreduceTensor or (MPI.gloo and MPI.async.gloo.allreduceTensor),
+               broadcastTensor = MPI.async.broadcastTensor or (MPI.gloo and MPI.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,           -- OpenMPI-1.8 async version seems bugged ??
                sendreceiveTensor = MPI.sendreceiveTensor, -- no async version
             },
@@ -439,30 +470,48 @@ configureCollectiveSelector = function()
       gpu = {
          singlenode = {
             sync = {
-               allreduceTensor = MPI.ipcGroups and MPI.p2p.allreduceTensor or (MPI.nccl and MPI.nccl.allreduceTensor or MPI.allreduceTensor),
+               allreduceTensor = MPI.ipcGroups and MPI.p2p.allreduceTensor
+                  or (MPI.nccl and MPI.nccl.allreduceTensor)
+                  or MPI.allreduceTensor
+                  or (MPI.gloo and MPI.gloo.allreduceTensor),
                -- Cross ipcGroups p2p.broadcast does not work, use stock MPI
                broadcastTensor = MPI.singleIPCGroup and MPI.p2p.broadcastTensor or
-                  MPI.ipcGroups and MPI.broadcastTensor or (MPI.nccl and MPI.nccl.broadcastTensor or MPI.broadcastTensor),
+                  MPI.ipcGroups and MPI.broadcastTensor
+                  or (MPI.nccl and MPI.nccl.broadcastTensor)
+                  or MPI.broadcastTensor
+                  or (MPI.gloo and MPI.gloo.broadcastTensor),
                reduceTensor = MPI.nccl and MPI.nccl.reduceTensor or MPI.reduceTensor,
                sendreceiveTensor = MPI.sendreceiveTensor,
             },
             async = {
-               allreduceTensor = MPI.ipcGroups and MPI.async.p2p.allreduceTensor or (MPI.nccl and MPI.async.nccl.allreduceTensor or MPI.async.allreduceTensor),
-               broadcastTensor = MPI.ipcGroups and MPI.async.p2p.broadcastTensor or (MPI.nccl and MPI.async.nccl.broadcastTensor or MPI.async.broadcastTensor),
+               allreduceTensor = MPI.ipcGroups and MPI.async.p2p.allreduceTensor
+                  or (MPI.nccl and MPI.async.nccl.allreduceTensor)
+                  or MPI.async.allreduceTensor
+                  or (MPI.gloo and MPI.async.gloo.allreduceTensor),
+               broadcastTensor = MPI.ipcGroups and MPI.async.p2p.broadcastTensor
+                  or (MPI.nccl and MPI.async.nccl.broadcastTensor)
+                  or MPI.async.broadcastTensor
+                  or (MPI.gloo and MPI.async.gloo.broadcastTensor),
                reduceTensor = MPI.nccl and MPI.async.nccl.reduceTensor or MPI.reduceTensor, -- OpenMPI-1.8 async version seems bugged ??
                sendreceiveTensor = MPI.sendreceiveTensor, -- no async version
             },
          },
          multinode = {
             sync = {
-               allreduceTensor = MPI.ipcGroups and MPI.p2p.allreduceTensor or (MPI.nccl and MPI.nccl.allreduceTensor or MPI.allreduceTensor),
-               broadcastTensor = MPI.broadcastTensor,
+               allreduceTensor = MPI.ipcGroups and MPI.p2p.allreduceTensor
+                  or (MPI.nccl and MPI.nccl.allreduceTensor)
+                  or MPI.allreduceTensor
+                  or (MPI.gloo and MPI.gloo.allreduceTensor),
+               broadcastTensor = MPI.broadcastTensor or (MPI.gloo and MPI.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,
                sendreceiveTensor = MPI.sendreceiveTensor,
             },
             async = {
-               allreduceTensor = MPI.ipcGroups and MPI.async.p2p.allreduceTensor or (MPI.nccl and MPI.async.nccl.allreduceTensor or MPI.async.allreduceTensor),
-               broadcastTensor = MPI.async.broadcastTensor,
+               allreduceTensor = MPI.ipcGroups and MPI.async.p2p.allreduceTensor
+                  or (MPI.nccl and MPI.async.nccl.allreduceTensor)
+                  or MPI.async.allreduceTensor
+                  or (MPI.gloo and MPI.async.gloo.allreduceTensor),
+               broadcastTensor = MPI.async.broadcastTensor or (MPI.gloo and MPI.async.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,           -- OpenMPI-1.8 async version seems bugged ??
                sendreceiveTensor = MPI.sendreceiveTensor, -- no async version
             },
@@ -490,35 +539,45 @@ function MPI.collectiveAvailability(cpu, gpu)
          str = str .. "gpu = {\n"
       end
       for _, nccl in ipairs({false, true}) do
-         for _, async in ipairs({false, true}) do
-            for _, p2p in ipairs({false, true}) do
-               for _, collective in ipairs({"broadcast", "reduce", "allreduce", "sendreceive"}) do
-                  if gpu or not nccl then -- cpu + nccl not valid
-                     local funcname = "MPI" .. (nccl and ".nccl" or "" )
-                         .. (async and ".async" or "") .. (p2p and ".p2p." or ".")
-                         .. collective .. "Tensor"
+         for _, gloo in ipairs(nccl and {false} or {false, true}) do
+            for _, async in ipairs({false, true}) do
+               for _, p2p in ipairs(gloo and {false} or {false, true}) do
+                  for _, collective in ipairs({"broadcast", "reduce", "allreduce", "sendreceive"}) do
+                     if gpu or not nccl then -- cpu + nccl not valid
+                        local funcname = "MPI"
+                            .. (nccl and ".nccl" or "" ) .. (gloo and ".gloo" or "")
+                            .. (async and ".async" or "") .. (p2p and ".p2p." or ".")
+                            .. collective .. "Tensor"
 
-                     local func = MPI
-                     if nccl then
-                        func = MPI.hasNCCL and func.nccl or nil
-                     end
-                     if func ~= nil then
-                        func = async and func.async or func
-                        func = p2p and func.p2p or func
-                        func = func[collective .. "Tensor"]
-                     end
-                     local val = func ~= nil and "available" or "unimplemented"
+                        local func = MPI
+                        if nccl then
+                           func = MPI.hasNCCL and func.nccl or nil
+                        end
+                        if gloo then
+                           func = MPI.hasGloo and func.gloo or nil
+                        end
+                        if func ~= nil then
+                           func = async and func.async or func
+                           func = p2p and func.p2p or func
+                           func = func[collective .. "Tensor"]
+                        end
+                        local val = func ~= nil and "available" or "unimplemented"
 
-                     -- differentiate between unimplemented and unavailable
-                     if func == nil and nccl and not MPI.hasNCCL then
-                        val = collective == "sendreceive" and "unimplemented" or "unavailable"
-                     end
+                        -- differentiate between unimplemented and unavailable
+                        if func == nil and nccl and not MPI.hasNCCL then
+                           val = collective == "sendreceive" and "unimplemented" or "unavailable"
+                        end
 
-                     -- special cases
-                     if gpu and async and not nccl and collective == "reduce" then
-                        val = "unimplemented"
+                        if func == nil and gloo and not MPI.hasGloo then
+                           val = (collective == "sendreceive" or collective == "reduce") and "unimplemented" or "unavailable"
+                        end
+
+                        -- special cases
+                        if gpu and async and not nccl and collective == "reduce" then
+                           val = "unimplemented"
+                        end
+                        str = str .. ('\t%-35s \t->\t %s\n'):format(funcname, val)
                      end
-                     str = str .. ('\t%-35s \t->\t %s\n'):format(funcname, val)
                   end
                end
             end

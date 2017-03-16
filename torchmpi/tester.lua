@@ -49,6 +49,7 @@ tester.runOneConfig = function(tests, nRuns, nSkip, config, printDebug)
             -- Skip the timing of the first nSkip iterations
             if r >= nSkip + 1 then timer:resume() end
             mpi.barrier()
+            local inputClone = not config.inPlace and input:clone() or nil
             local handle = T.test(input, output, r == 1)
             mpi.barrier()
             if handle == 'NYI' then
@@ -65,7 +66,7 @@ tester.runOneConfig = function(tests, nRuns, nSkip, config, printDebug)
             timer:stop()
 
             if r == 1 then
-               T.check(input, output)
+               T.check(input, output, inputClone)
             end
          end
 

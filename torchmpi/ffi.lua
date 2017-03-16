@@ -61,6 +61,18 @@ local function declMPI(withCuda)
       ]]
    end
 
+   -- gloo
+   for _, v in pairs(types.torch) do
+      allreduce_def = allreduce_def .. [[
+         void torchmpi_gloo_allreduce_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, TH]] .. v .. [[Tensor* output);
+         SynchronizationHandle* torchmpi_async_gloo_allreduce_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, TH]] .. v .. [[Tensor* output);
+      ]]
+      broadcast_def = broadcast_def .. [[
+         void torchmpi_gloo_broadcast_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src);
+         SynchronizationHandle* torchmpi_async_gloo_broadcast_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src);
+      ]]
+
+   end
    local def = [[
       typedef void* cudaStream_t;
       typedef struct SynchronizationHandle {
@@ -96,6 +108,10 @@ local function declMPI(withCuda)
                [[(THCState* state, THCuda]] .. v .. [[Tensor* input, THCuda]] .. v .. [[Tensor* output);
             SynchronizationHandle* torchmpi_async_nccl_allreduce_THCuda]] .. v .. [[Tensor]] ..
                [[(THCState* state, THCuda]] .. v .. [[Tensor* input, THCuda]] .. v .. [[Tensor* output);
+            void torchmpi_gloo_allreduce_THCuda]] .. v .. [[Tensor]] ..
+               [[(THCState* state, THCuda]] .. v .. [[Tensor* input, THCuda]] .. v .. [[Tensor* output);
+            SynchronizationHandle* torchmpi_async_gloo_allreduce_THCuda]] .. v .. [[Tensor]] ..
+               [[(THCState* state, THCuda]] .. v .. [[Tensor* input, THCuda]] .. v .. [[Tensor* output);
          ]]
          broadcast_def = broadcast_def .. [[
             void torchmpi_broadcast_THCuda]] .. v .. [[Tensor]] ..
@@ -109,6 +125,10 @@ local function declMPI(withCuda)
             void torchmpi_nccl_broadcast_THCuda]] .. v .. [[Tensor]] ..
                [[(THCState* state, THCuda]] .. v .. [[Tensor* input, int src);
             SynchronizationHandle* torchmpi_async_nccl_broadcast_THCuda]] .. v .. [[Tensor]] ..
+               [[(THCState* state, THCuda]] .. v .. [[Tensor* input, int src);
+            void torchmpi_gloo_broadcast_THCuda]] .. v .. [[Tensor]] ..
+               [[(THCState* state, THCuda]] .. v .. [[Tensor* input, int src);
+            SynchronizationHandle* torchmpi_async_gloo_broadcast_THCuda]] .. v .. [[Tensor]] ..
                [[(THCState* state, THCuda]] .. v .. [[Tensor* input, int src);
          ]]
          reduce_def = reduce_def .. [[
@@ -134,6 +154,7 @@ local function declMPI(withCuda)
       int torchmpi_rank();
       int torchmpi_size();
       int torchmpi_has_nccl();
+      int torchmpi_has_gloo();
       void torchmpi_free_ipc_descriptors();
       const char* torchmpi_communicator_names();
       int torchmpi_push_communicator(const char* key);
