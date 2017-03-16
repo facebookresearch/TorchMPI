@@ -27,7 +27,6 @@ build = {
       CMAKE_BUILD_TYPE="Release",
       LUA_PATH="$(LUADIR)",
       LUA_CPATH="$(LIBDIR)",
-      MPI_C_COMPILER="${MPI_C_COMPILER}",
       MPI_CXX_COMPILER="${MPI_CXX_COMPILER}",
       CMAKE_PREFIX_PATH="$(LUA_BINDIR)/..", -- to find torch
    }

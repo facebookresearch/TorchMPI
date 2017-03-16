@@ -13,7 +13,10 @@ else()
 endif()
 
 find_package(Torch REQUIRED)
-find_package(MPI REQUIRED)
+find_package(MPI)
+if(NOT MPI_CXX_FOUND)
+  MESSAGE(FATAL_ERROR "MPI (c++) not found; please set MPI_CXX_COMPILER env variable")
+endif()
 
 set(PKGNAME torchmpi)
 
