@@ -1,2 +1,5 @@
-file(GLOB luafiles RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.lua")
-install(FILES ${luafiles} DESTINATION ${LUA_PATH}/${PKGNAME})
+file(GLOB_RECURSE luafiles RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "*.lua")
+foreach(file ${luafiles})
+  get_filename_component(subdir ${file} DIRECTORY)
+  install(FILES ${file} DESTINATION ${LUA_PATH}/${PKGNAME}/${subdir})
+endforeach()
