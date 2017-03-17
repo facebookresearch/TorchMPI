@@ -90,6 +90,25 @@ M.async.synchronizeGradients = function()
 end
 
 
+M.async.unregisterAsyncMPIBackward = function(net)
+   -- Dispatch to the proper backward registering function
+   if torch.isTypeOf(net, 'nn.BlockSequential') then
+      error('NYI: unregisterAsyncMPIBackward for nn.BlockSequential')
+      registerBlockSequentialAsyncMPIBackward(net)
+   else
+      if torch.isTypeOf(net, 'nn.Container') then
+         for _, m in ipairs(net:listModules()) do
+            -- Freaking listModules also lists 'self', filter it out!
+            if m ~= net then
+               m.backward = mpicache.asyncDetails.originalBackwards[m] or m.backward
+            end
+         end
+      elseif net.parameters then
+         net.backward = mpicache.asyncDetails.originalBackwards[m] or net.backward
+      end
+   end
+end
+
 M.async.registerAsyncMPIBackward = function(net, syncGradientFrequency)
    local syncGradientFrequency = syncGradientFrequency or 1
 

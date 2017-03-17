@@ -10,6 +10,7 @@ require('torch')
 
 local cmd = torch.CmdLine()
 cmd:option('-benchmark', false, 'skip correctness check and benchmark performance instead')
+cmd:option('-cartesian', false, 'use cartesian or tree communicator')
 cmd:option('-tests', 'all', 'Options: all | allselector | basic | p2p | nccl | gloo')
 cmd:option('-processor', 'both', 'Options: gpu | cpu | both')
 cmd:option('-execution', 'both', 'Options: sync | async | both: Dispatch collectives asynchronously and wait for handle before checking')
@@ -70,7 +71,9 @@ local nRuns = config.benchmark and 10 + nSkip or 1
 
 -- If using GPUs, set the GPU before initializing MPI
 local mpi = require('torchmpi')
-mpi.start(config.processor ~= "cpu", config.tests ~= 'nccl')
+mpi.start{withCuda = (config.processor ~= "cpu"),
+          withIPCGroups = (config.tests ~= 'nccl'),
+          withCartesianCommunicator = config.cartesian}
 
 if config.hierarchical == 'true' then
   mpi.C.torchmpi_set_hierarchical_collectives()

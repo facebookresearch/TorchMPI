@@ -8,6 +8,7 @@
 --]]
 require('torch')
 local MPI = require("torchmpi.env")
+local argcheck = require 'argcheck'
 local types = require("torchmpi.types")
 local wrap = require('torchmpi.wrap')
 
@@ -27,57 +28,74 @@ end
 
 local setupNCCL, initPerNodeCommunicators, configureCollectiveSelector
 
-MPI.start = function(withCuda, ipcGroups, customCommunicatorInit)
-   MPI.ipcGroups = (ipcGroups == nil) and true or ipcGroups
+MPI.start = argcheck {
+   { name = "withCuda", type = "boolean" },
+   { name = "withIPCGroups", type = "boolean", default = true },
+   { name = "customCommunicatorInit", type = "function", opt = true  },
+   { name = "withCartesianCommunicator", type = "boolean", default = false },
+   { name = "collectiveCommunicator", type = "function", opt = true },
+   call = function(withCuda, withIPCGroups, customCommunicatorInit, withCartesianCommunicator, collectiveCommunicator)
+      MPI.ipcGroups = (ipcGroups == nil) and true or ipcGroups
 
-   local function getHostname()
-      local f = io.popen("/bin/hostname")
-      local hostname = f:read("*a") or ""
-      f:close()
-      hostname = string.gsub(hostname, "\n$", "")
-      return hostname
-   end
+      local function getHostname()
+         local f = io.popen("/bin/hostname")
+         local hostname = f:read("*a") or ""
+         f:close()
+         hostname = string.gsub(hostname, "\n$", "")
+         return hostname
+      end
 
-   -- anything that forks processes must happen before torchmpi_start
-   MPI.hostName = getHostname()
-   MPI.withCuda = withCuda
+      -- anything that forks processes must happen before torchmpi_start
+      MPI.hostName = getHostname()
+      MPI.withCuda = withCuda
 
-   require('torchmpi.ffi')(MPI.withCuda)
-   MPI.hasNCCL = (MPI.C.torchmpi_has_nccl() ~= 0) and true or false
-   if MPI.hasNCCL then setupNCCL() end
+      require('torchmpi.ffi')(MPI.withCuda)
+      MPI.hasNCCL = (MPI.C.torchmpi_has_nccl() ~= 0) and true or false
+      if MPI.hasNCCL then setupNCCL() end
 
-   MPI.hasGloo = (MPI.C.torchmpi_has_gloo() ~= 0) and true or false
-   if MPI.hasGloo then setupGloo() end
+      MPI.hasGloo = (MPI.C.torchmpi_has_gloo() ~= 0) and true or false
+      if MPI.hasGloo then setupGloo() end
 
-   MPI.C.torchmpi_start()
+      if not withCartesianCommunicator then
+         MPI.C.torchmpi_set_tree_communicator()
+      else
+         MPI.C.torchmpi_set_cartesian_communicator()
+      end
 
-   if MPI.withCuda then
-      assert(
-         os.getenv('OMPI_COMM_WORLD_LOCAL_RANK') or
-            os.getenv('MV2_COMM_WORLD_LOCAL_RANK'),
-         'OMPI_COMM_WORLD_LOCAL_RANK or MV2_COMM_WORLD_LOCAL_RANK env var must be defined')
-      MPI.supportsCuda = os.getenv('OMPI_COMM_WORLD_LOCAL_RANK') or
-         os.getenv('MV2_COMM_WORLD_LOCAL_RANK')
-      MPI.device =
-         tonumber(
+      MPI.C.torchmpi_start()
+
+      if MPI.withCuda then
+         assert(
             os.getenv('OMPI_COMM_WORLD_LOCAL_RANK') or
-               os.getenv('MV2_COMM_WORLD_LOCAL_RANK')
-         ) % cutorch.getDeviceCount() + 1
-      cutorch.setDevice(MPI.device)
-   end
+               os.getenv('MV2_COMM_WORLD_LOCAL_RANK'),
+            'OMPI_COMM_WORLD_LOCAL_RANK or MV2_COMM_WORLD_LOCAL_RANK env var must be defined')
+         MPI.supportsCuda = os.getenv('OMPI_COMM_WORLD_LOCAL_RANK') or
+            os.getenv('MV2_COMM_WORLD_LOCAL_RANK')
+         MPI.device =
+            tonumber(
+               os.getenv('OMPI_COMM_WORLD_LOCAL_RANK') or
+                  os.getenv('MV2_COMM_WORLD_LOCAL_RANK')
+            ) % cutorch.getDeviceCount() + 1
+         cutorch.setDevice(MPI.device)
+      end
 
-   if customCommunicatorInit then
-      MPI.numCommunicators =
-         assert(customCommunicatorInit(),
-            'customCommunicatorInit should return the communicator hierarchy\'s depth')
-      -- Principle of least surprise, if there is a custom communicator
-      -- it is assumed the communicatrors for collectives are rooted under it
-      MPI.C.torchmpi_set_communicator(MPI.numCommunicators)
-   end
+      if customCommunicatorInit then
+         MPI.numCommunicators =
+            assert(customCommunicatorInit(),
+                   'customCommunicatorInit should return the communicator hierarchy\'s depth')
+         -- Principle of least surprise, if there is a custom communicator
+         -- it is assumed the communicatrors for collectives are rooted under it
+         MPI.C.torchmpi_set_communicator(MPI.numCommunicators)
+      end
 
-   initPerNodeCommunicators()
-   configureCollectiveSelector()
-end
+      if not withCollectiveCommunicator then
+         initPerNodeCommunicators()
+      else
+         collectiveCommunicator()
+      end
+      configureCollectiveSelector()
+   end
+}
 
 MPI.stop = function()
    MPI.C.torchmpi_stop()
