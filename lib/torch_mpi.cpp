@@ -73,10 +73,9 @@ const Communicator& getMainThreadCommunicator() {
 }
 
 void pushCommunicator(string& str) {
-  Communicator c(
+  mainThreadCommunicators.emplace_back(
     getMainThreadMPICommunicator(),
     CommunicatorKey::fromString(str));
-  mainThreadCommunicators.push_back(std::move(c));
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -185,9 +184,19 @@ namespace th {
     }
   }
 
+  void freeRetainedStorages() {
+    freeCollectiveResources();
+
+    freeRetainedStorage<THByteStorage*>();
+    freeRetainedStorage<THShortStorage*>();
+    freeRetainedStorage<THIntStorage*>();
+    freeRetainedStorage<THLongStorage*>();
+    freeRetainedStorage<THFloatStorage*>();
+    freeRetainedStorage<THDoubleStorage*>();
+  }
+
   template<typename THStoragePtrType>
   void freeRetainedStorage() {
-    collectiveResources().clear();
     auto& retained = retainedStorages<THStoragePtrType>();
     for (auto it : retained) {
       torch::th::free(it.first);
@@ -232,9 +241,8 @@ void torchmpi_start() {
             kMPIProvidedLevel, MPI_THREAD_MULTIPLE);
   }
 
-  auto m = Communicator(
+  mainThreadCommunicators.emplace_back(
     MPI::COMM_WORLD, CommunicatorKey::fromString("global"));
-  mainThreadCommunicators.push_back(std::move(m));
 }
 
 int torchmpi_push_communicator(const char* key) {
@@ -272,12 +280,7 @@ void torchmpi_stop() {
   barrier(getMainThreadMPICommunicator());
   syncAll();
 
-  torch::mpi::th::freeRetainedStorage<THByteStorage*>();
-  torch::mpi::th::freeRetainedStorage<THShortStorage*>();
-  torch::mpi::th::freeRetainedStorage<THIntStorage*>();
-  torch::mpi::th::freeRetainedStorage<THLongStorage*>();
-  torch::mpi::th::freeRetainedStorage<THFloatStorage*>();
-  torch::mpi::th::freeRetainedStorage<THDoubleStorage*>();
+  torch::mpi::th::freeRetainedStorages();
 
   torch::mpi::freeParameterServers();
   auto& worker = torch::mpi::parameterServerThread();
