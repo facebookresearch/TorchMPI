@@ -88,7 +88,7 @@ CollectiveResources::CollectiveResources(void* p, const Communicator* pc) :
     inUse(false),
     comm(new Communicator(*pc)),
 #ifdef TORCH_MPI_GLOO
-    , glooContext(nullptr)
+    glooContext(nullptr),
 #endif
     ptr(p)
 {
