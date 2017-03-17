@@ -131,6 +131,14 @@ CollectiveResources* acquireCollectiveResources(
       }
     }
   }
+
+#ifdef TORCH_MPI_GLOO
+  if (gloo.with && !it->second->glooContext) {
+    it->second->glooContext =
+      makeGlooContext(it->second->comm->intraComm);
+  }
+#endif
+
   it->second->inUse = true;
   return it->second;
 }

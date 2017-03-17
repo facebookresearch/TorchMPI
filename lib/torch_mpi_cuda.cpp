@@ -47,7 +47,7 @@ namespace torch { namespace mpi { namespace thc {
 
   template<typename THStoragePtrType>
   void freeRetainedStorage(THCState* state) {
-    collectiveResources().clear();
+    freeCollectiveResourcesCuda();
     auto& retained = retainedStorages<THStoragePtrType>();
     for (auto it : retained) {
       torch::thc::free(state, it.first);
