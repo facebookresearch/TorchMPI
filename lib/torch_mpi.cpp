@@ -278,15 +278,18 @@ void torchmpi_barrier() {
 
 void torchmpi_stop() {
   barrier(getMainThreadMPICommunicator());
+
+  // Sync
   syncAll();
-
-  torch::mpi::th::freeRetainedStorages();
-
-  torch::mpi::freeParameterServers();
-  auto& worker = torch::mpi::parameterServerThread();
-  if (worker.joinable()) {
-    worker.join();
+  setTerminateParameterServerThread(); // make server thread joinable
+  auto& server = torch::mpi::parameterServerThread();
+  if (server.joinable()) {
+    server.join();
   }
+
+  // Free
+  torch::mpi::freeParameterServers();
+  torch::mpi::th::freeRetainedStorages();
 
   barrier(getMainThreadMPICommunicator());
   freeCollectiveResources();
