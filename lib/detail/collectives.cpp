@@ -103,7 +103,7 @@ template<typename ScalarType> void broadcastp2p(
       size_t thisSize = std::min(chunkSize, nElement - chunkStart);
       if (next >= 0) {
         reqs[chunk].Wait();
-        reqs[chunk] = comm.Isend(
+        reqs[chunk] = comm.Issend(
           tensorData + chunkStart, thisSize, mpiType<ScalarType>(), next, chunk);
         reqs[chunk].Wait();
       }
@@ -189,7 +189,7 @@ void allreducep2p(
     auto& plan = planReduce[step];
     std::vector<MPI::Request> reqSend(totalChunks), reqRecv(totalChunks);
 
-    // 1. Post all IRecv to ensure receive buffer is allocated
+    // 1. Post all Irecv
     for (long startChunk = 0, startChunkIndex = 0; startChunk < totalChunks;
          startChunk += (long)size, ++startChunkIndex) {
       long sendingChunk = plan[startChunkIndex].first;
@@ -213,10 +213,7 @@ void allreducep2p(
       }
     }
 
-    // 2. Sync so that all buffers are allocated
-    barrier(comm);
-
-    // 3. Post all asynchronous ISend
+    // 2. Post all asynchronous ISend
     for (long startChunk = 0, startChunkIndex = 0; startChunk < totalChunks;
          startChunk += (long)size, ++startChunkIndex) {
       long sendingChunk = plan[startChunkIndex].first;
@@ -228,7 +225,7 @@ void allreducep2p(
         long len = (long)(sendEnd - sendStart + 1);
 
         if (sendStart <= sendEnd) {
-          reqSend[sendingChunk] = comm.Isend(
+          reqSend[sendingChunk] = comm.Issend(
             outputData + sendStart,
             len,
             mpiType<ScalarType>(),
@@ -238,7 +235,7 @@ void allreducep2p(
       }
     }
 
-    // 4. Overlap compute and copies
+    // 3. Overlap compute and copies
     for (long startChunk = 0, startChunkIndex = 0; startChunk < totalChunks;
          startChunk += (long)size, ++startChunkIndex) {
       long sendingChunk = plan[startChunkIndex].first;
@@ -264,7 +261,7 @@ void allreducep2p(
       }
     }
 
-    // 5. Ensure all chunks are finished
+    // 4. Ensure all chunks are finished
     for (long startChunk = 0, startChunkIndex = 0; startChunk < totalChunks;
          startChunk += (long)size, ++startChunkIndex) {
       long sendingChunk = plan[startChunkIndex].first;
@@ -279,7 +276,7 @@ void allreducep2p(
     auto& plan = planBroadcast[step];
     std::vector<MPI::Request> reqSend(totalChunks), reqRecv(totalChunks);
 
-    // 1. Post all IRecv to ensure receive buffer is allocated
+    // 1. Post all Irecv
     for (long startChunk = 0, startChunkIndex = 0; startChunk < totalChunks;
          startChunk += (long)size, ++startChunkIndex) {
       long sendingChunk = plan[startChunkIndex].first;
@@ -301,10 +298,7 @@ void allreducep2p(
       }
     }
 
-    // 2. Sync so that all buffers are allocated
-    barrier(comm);
-
-    // 3. Post all asynchronous ISend
+    // 2. Post all asynchronous ISend
     for (long startChunk = 0, startChunkIndex = 0; startChunk < totalChunks;
          startChunk += (long)size, ++startChunkIndex) {
       long sendingChunk = plan[startChunkIndex].first;
@@ -315,7 +309,7 @@ void allreducep2p(
           std::min((sendingChunk + 1) * bufferSize - 1, nElement - 1);
         long len = (long)(sendEnd - sendStart + 1);
         if (sendStart <= sendEnd) {
-          reqSend[sendingChunk] = comm.Isend(
+          reqSend[sendingChunk] = comm.Issend(
             outputData + sendStart,
             len,
             mpiType<ScalarType>(),
@@ -325,7 +319,7 @@ void allreducep2p(
       }
     }
 
-    // 4. Ensure all chunks are finished
+    // 3. Ensure all chunks are finished
     for (auto& r : reqSend) { r.Wait(); }
     for (auto& r : reqRecv) { r.Wait(); }
   }

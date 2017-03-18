@@ -436,7 +436,7 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
     auto& plan = planReduce[step];
     std::vector<MPI::Request> reqSend(totalChunks), reqRecv(totalChunks);
 
-    // 1. Post all IRecv to ensure receive buffer is allocated
+    // 1. Post all Irecv
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -487,10 +487,7 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
       }
     }
 
-    // 3. Sync so that all IRecv buffers are allocated
-    barrier(comm);
-
-    // 4. Pipeline stream synchronize waiting for GPU-CPU
+    // 3. Pipeline stream synchronize waiting for GPU-CPU
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -506,7 +503,7 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
               outputData + start, bufferSize * sizeof(ScalarType));
           THCudaCheck(
             cudaStreamSynchronize(getStream(copyStreams, bufferIndex)));
-          reqSend[sendingChunk] = comm.Isend(
+          reqSend[sendingChunk] = comm.Issend(
             cpubuf,
             transferLen(start, end),
             mpiType<ScalarType>(),
@@ -516,7 +513,7 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
       }
     }
 
-    // 6. Receive and reduce
+    // 4. Receive and reduce
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -561,7 +558,7 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
       }
     }
 
-    // 6. Ensure all chunks are finished, don't synchronize reductions we'll
+    // 5. Ensure all chunks are finished, don't synchronize reductions we'll
     // just reuse streams
     for (auto& r : reqSend) { r.Wait(); }
   }
@@ -573,7 +570,7 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
     auto& plan = planBroadcast[step];
     std::vector<MPI::Request> reqSend(totalChunks), reqRecv(totalChunks);
 
-    // 1. Post all IRecv to ensure receive buffer is allocated
+    // 1. Post all Irecv
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -596,9 +593,7 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
       }
     }
 
-    // 2. Sync so that all buffers are allocated
-    barrier(comm);
-
+    // 2. Post all DtoH copies
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -621,6 +616,7 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
       }
     }
 
+    // 3. Pipeline stream synchronize waiting for GPU-CPU
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -635,7 +631,7 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
             outputData + start, bufferSize * sizeof(ScalarType));
           THCudaCheck(
             cudaStreamSynchronize(getStream(copyStreams, bufferIndex)));
-          reqSend[sendingChunk] = comm.Isend(
+          reqSend[sendingChunk] = comm.Issend(
             cpubuf,
             transferLen(start, end),
             mpiType<ScalarType>(),
@@ -646,6 +642,7 @@ template<typename ScalarType> void allreducep2pCrossNodesViaCPU(
       }
     }
 
+    // 4. Receive
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -730,7 +727,7 @@ template<typename ScalarType> void allreducep2pCrossNodesDirect(
     auto& plan = planReduce[step];
     std::vector<MPI::Request> reqSend(totalChunks), reqRecv(totalChunks);
 
-    // 1. Post all IRecv to ensure receive buffer is allocated
+    // 1. Post all Irecv
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -758,10 +755,7 @@ template<typename ScalarType> void allreducep2pCrossNodesDirect(
       }
     }
 
-    // 2. Sync so that all MPI IRecv buffers are ready
-    barrier(comm);
-
-    // 3. Pipeline stream synchronize waiting for GPU-GPU copies
+    // 2. Pipeline stream synchronize waiting for GPU-GPU copies
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -774,7 +768,7 @@ template<typename ScalarType> void allreducep2pCrossNodesDirect(
         if (start <= end) {
           THCudaCheck(
             cudaStreamSynchronize(getStream(copyStreams, bufferIndex)));
-          reqSend[sendingChunk] = comm.Isend(
+          reqSend[sendingChunk] = comm.Issend(
             (void*)(outputData + start),
             transferLen(start, end),
             mpiType<ScalarType>(),
@@ -784,7 +778,7 @@ template<typename ScalarType> void allreducep2pCrossNodesDirect(
       }
     }
 
-    // 4. Receive data and start local reduction
+    // 3. Receive data and start local reduction
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -814,7 +808,7 @@ template<typename ScalarType> void allreducep2pCrossNodesDirect(
       }
     }
 
-    // 7. Ensure all chunks are finished, don't synchronize reductions now
+    // 4. Ensure all chunks are finished, don't synchronize reductions now
     for (auto& r : reqSend) { r.Wait(); }
   }
 
@@ -825,7 +819,7 @@ template<typename ScalarType> void allreducep2pCrossNodesDirect(
     auto& plan = planBroadcast[step];
     std::vector<MPI::Request> reqSend(totalChunks), reqRecv(totalChunks);
 
-    // 1. Post all IRecv to ensure receive buffer is allocated
+    // 1. Post all Irecv
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -846,10 +840,7 @@ template<typename ScalarType> void allreducep2pCrossNodesDirect(
       }
     }
 
-    // 2. Sync so that all MPI IRecv buffers are ready
-    barrier(comm);
-
-    // 3. Make sure reduction finished before sending
+    // 2. Make sure reduction finished before sending
     for (long startChunk = 0, bufferIndex = 0;
          startChunk < totalChunks;
          startChunk += (long)size, ++bufferIndex) {
@@ -862,7 +853,7 @@ template<typename ScalarType> void allreducep2pCrossNodesDirect(
         if (start <= end) {
           THCudaCheck(
             cudaStreamSynchronize(getStream(copyStreams, bufferIndex)));
-          reqSend[sendingChunk] = comm.Isend(
+          reqSend[sendingChunk] = comm.Issend(
             outputData + start,
             transferLen(start, end),
             mpiType<ScalarType>(),
@@ -872,7 +863,7 @@ template<typename ScalarType> void allreducep2pCrossNodesDirect(
       }
     }
 
-    // 4. Ensure all chunks are finished
+    // 3. Ensure all chunks are finished
     for (auto& r : reqSend) { r.Wait(); }
     for (auto& r : reqRecv) { r.Wait(); }
   }
