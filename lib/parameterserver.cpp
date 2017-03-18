@@ -230,7 +230,7 @@ int nextParameterServerInstance() {
   return ++g_parameterServerInstance;
 }
 
-bool& terminateParameterServers() {
+bool& terminateParameterServerThread() {
   static bool finalize = false;
   return finalize;
 }
@@ -352,9 +352,7 @@ struct DistributedParameterServer {
       futures.size() - 1);
   }
 
-  // Client-side receive
-  // Asynchronously for maximal latency hiding *and* internal MPI buffer
-  // optimizations.
+  // Client-side receive, asynchronously for latency hiding
   template<typename ScalarType>
   ParameterServerSynchronizationHandle* clientReceive(ScalarType* data) {
     auto& futures = getParameterServerFutures();
@@ -621,18 +619,18 @@ void freeParameterServer(DistributedParameterServer* dps) {
   delete dps;
 }
 
-void setTerminateParameterServers() {
-  terminateParameterServers() = true;
-}
-
 void freeParameterServers() {
   lock_guard<mutex> lg(PSMutex);
-  setTerminateParameterServers();
   auto& servers = parameterServers();
   for (auto dps : servers) {
     delete dps;
   }
   servers.clear();
+}
+
+// Call before joining the threadpool, not
+void setTerminateParameterServerThread() {
+  terminateParameterServerThread() = true;
 }
 
 std::thread& parameterServerThread() {
@@ -650,7 +648,7 @@ void launchParameterServer() {
       while(1) {
         {
           lock_guard<mutex> lg(PSMutex);
-          if (terminateParameterServers()) {
+          if (terminateParameterServerThread()) {
             return;
           }
           auto& servers = parameterServers();

@@ -11,6 +11,7 @@
 namespace torch { namespace mpi {
 
 std::thread& parameterServerThread();
+void setTerminateParameterServerThread();
 void freeParameterServers();
 
 }} // ns torch.mpi
