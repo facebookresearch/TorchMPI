@@ -35,7 +35,7 @@ local function customCommunicatorInit()
    return res
 end
 
-mpi.start(false, false, customCommunicatorInit)
+mpi.start{ withCuda = false, withIPCGroups = false, customCommunicatorInit = customCommunicatorInit, withCartesianCommunicator = true }
 -- Creating a custom communicator will leave you at the level it has been created
 -- Get back to level 0 to do stuff form the top.
 mpi.C.torchmpi_set_communicator(0)

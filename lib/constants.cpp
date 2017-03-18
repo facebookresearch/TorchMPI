@@ -66,7 +66,7 @@ bool immutableConstants = false;
 
 bool kUseStagedCollectives = false;
 bool kUseHierarchicalCollectives = true;
-bool kUseCartesianCommunicator = true;
+bool kUseCartesianCommunicator = false;
 
 int kSmallBcastSizeGPU = 1 << 13;
 int kSmallAllreduceSizeGPU = 1 << 16;

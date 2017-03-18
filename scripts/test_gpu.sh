@@ -45,8 +45,8 @@ if test ${HOSTFILE}; then
     export NUM_NODES=$(cat ${HOSTFILE} | wc -l)
     export ub=$(echo ${NUM_GPUS}*${NUM_NODES} | bc)
     for n in $(seq 2 $ub); do
-        mpirun -n ${n} -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor gpu -tests p2p
-        mpirun -n ${n} -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor gpu -tests nccl
+        mpirun -n ${n} -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor gpu -tests p2p -cartesian
+        mpirun -n ${n} -hostfile ${HOSTFILE} --map-by node --bind-to none bash ./scripts/wrap.sh ${LUAJIT} ./test/collectives_all.lua -processor gpu -tests nccl -cartesian
     done
 
     # Longer tests, multi-node (examples)
