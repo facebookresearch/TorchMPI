@@ -130,9 +130,11 @@ end
 
 local function collectiveAvailable(ns, collective)
    if config.tests == "all" then
-      local funcname = "MPI" .. (config.nccl and ".nccl" or "")
+      local funcname = "MPI"
+         .. (config.async and ".async" or "")
+         .. (config.nccl and ".nccl" or "")
          .. (config.gloo and ".gloo" or "")
-         .. (config.async and ".async" or "") .. (config.p2p and ".p2p." or ".")
+         .. (config.p2p and ".p2p." or ".")
          .. collective
       local availability = config.gpu and
          collectiveAvailabilityGPU or collectiveAvailabilityCPU
