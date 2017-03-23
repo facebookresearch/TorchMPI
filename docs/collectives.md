@@ -1,5 +1,5 @@
 # Collectives
-We provide minimal wrappers around MPI and NCCL collectives to perform synchronizations on Torch CPU and GPU tensors.
+We provide minimal wrappers around MPI, GLOO and NCCL collectives to perform synchronizations on Torch CPU and GPU tensors.
 In the case of asynchronous collectives, an opaque handler is returned and a wait primitive is exposed to abstract MPI_Request objects, CUDA streams or CPU-side futures.
 Where necessary we developed a minimal set of collectives to alleviate certain issues:
 - traditional MPI collectives may perform poorly for large messages originating on GPUs
@@ -14,12 +14,12 @@ you can switch implementations to get the best performance available.
 # Manually calling collectives
 The collectives we expose follow the generic patterns.
 For synchronous collectives: ```torchmpi.[impl.][name.][type]()```, where:
-- impl is either omitted (for the stock mpi implementation), ```nccl``` or ```p2p```
+- impl is either omitted (for the stock mpi implementation), ```nccl```, ```gloo```, or ```p2p```
 - name is either of ```broadcast```, ```reduce```, ```sendreceive``` or ```allreduce```
 - type is a CPU of GPU Torch tensor type
 
 For asynchronous collectives: ```userdata<SynchronizationHandle*> torchmpi.async.[impl.][name.][type]()```, where:
-- impl is either omitted (for the stock mpi implementation), ```nccl``` or ```p2p```
+- impl is either omitted (for the stock mpi implementation), ```nccl```, ```gloo```, or ```p2p```
 - name is either of ```broadcast```, ```reduce```, ```sendreceive``` or ```allreduce```
 - type is a CPU of GPU Torch tensor type
 Asynchronous collectives return a ```SynchronizationHandle``` object on which you should call ```torchmpi.syncHandle()```
@@ -54,7 +54,7 @@ every collective to its status in your installation.  The status can be one of:
 - unimplemented (not implemented in your version of torchmpi)
 - unavailable (implemented by your version of torchmpi but not available in your installation)
 
-Here is a sample output of that function call for an installation with nccl support:
+Here is a sample output of that function call for an installation with nccl but without gloo support:
 ```
 cpu = {
 	MPI.broadcastTensor                 	->	 available
@@ -65,6 +65,10 @@ cpu = {
 	MPI.p2p.reduceTensor                	->	 unimplemented
 	MPI.p2p.allreduceTensor             	->	 available
 	MPI.p2p.sendreceiveTensor           	->	 unimplemented
+	MPI.gloo.broadcastTensor            	->	 unavailable
+	MPI.gloo.reduceTensor               	->	 unimplemented
+	MPI.gloo.allreduceTensor            	->	 unavailable
+	MPI.gloo.sendreceiveTensor          	->	 unimplemented
 	MPI.async.broadcastTensor           	->	 available
 	MPI.async.reduceTensor              	->	 available
 	MPI.async.allreduceTensor           	->	 available
@@ -73,6 +77,10 @@ cpu = {
 	MPI.async.p2p.reduceTensor          	->	 available
 	MPI.async.p2p.allreduceTensor       	->	 available
 	MPI.async.p2p.sendreceiveTensor     	->	 unimplemented
+	MPI.async.gloo.broadcastTensor      	->	 unavailable
+	MPI.async.gloo.reduceTensor         	->	 unimplemented
+	MPI.async.gloo.allreduceTensor      	->	 unavailable
+	MPI.async.gloo.sendreceiveTensor    	->	 unimplemented
 }
 gpu = {
 	MPI.broadcastTensor                 	->	 available
@@ -83,14 +91,10 @@ gpu = {
 	MPI.p2p.reduceTensor                	->	 unimplemented
 	MPI.p2p.allreduceTensor             	->	 available
 	MPI.p2p.sendreceiveTensor           	->	 unimplemented
-	MPI.async.broadcastTensor           	->	 available
-	MPI.async.reduceTensor              	->	 unimplemented
-	MPI.async.allreduceTensor           	->	 available
-	MPI.async.sendreceiveTensor         	->	 unimplemented
-	MPI.async.p2p.broadcastTensor       	->	 available
-	MPI.async.p2p.reduceTensor          	->	 available
-	MPI.async.p2p.allreduceTensor       	->	 available
-	MPI.async.p2p.sendreceiveTensor     	->	 unimplemented
+	MPI.gloo.broadcastTensor            	->	 unavailable
+	MPI.gloo.reduceTensor               	->	 unimplemented
+	MPI.gloo.allreduceTensor            	->	 unavailable
+	MPI.gloo.sendreceiveTensor          	->	 unimplemented
 	MPI.nccl.broadcastTensor            	->	 available
 	MPI.nccl.reduceTensor               	->	 available
 	MPI.nccl.allreduceTensor            	->	 available
@@ -99,18 +103,28 @@ gpu = {
 	MPI.nccl.p2p.reduceTensor           	->	 available
 	MPI.nccl.p2p.allreduceTensor        	->	 available
 	MPI.nccl.p2p.sendreceiveTensor      	->	 unimplemented
-	MPI.nccl.async.broadcastTensor      	->	 available
-	MPI.nccl.async.reduceTensor         	->	 available
-	MPI.nccl.async.allreduceTensor      	->	 available
-	MPI.nccl.async.sendreceiveTensor    	->	 unimplemented
-	MPI.nccl.async.p2p.broadcastTensor  	->	 available
-	MPI.nccl.async.p2p.reduceTensor     	->	 available
-	MPI.nccl.async.p2p.allreduceTensor  	->	 available
-	MPI.nccl.async.p2p.sendreceiveTensor 	->	 unimplemented
+	MPI.async.broadcastTensor           	->	 available
+	MPI.async.reduceTensor              	->	 unimplemented
+	MPI.async.allreduceTensor           	->	 available
+	MPI.async.sendreceiveTensor         	->	 unimplemented
+	MPI.async.p2p.broadcastTensor       	->	 available
+	MPI.async.p2p.reduceTensor          	->	 unimplemented
+	MPI.async.p2p.allreduceTensor       	->	 available
+	MPI.async.p2p.sendreceiveTensor     	->	 unimplemented
+	MPI.async.gloo.broadcastTensor      	->	 unavailable
+	MPI.async.gloo.reduceTensor         	->	 unimplemented
+	MPI.async.gloo.allreduceTensor      	->	 unavailable
+	MPI.async.gloo.sendreceiveTensor    	->	 unimplemented
+	MPI.async.nccl.broadcastTensor      	->	 available
+	MPI.async.nccl.reduceTensor         	->	 available
+	MPI.async.nccl.allreduceTensor      	->	 available
+	MPI.async.nccl.sendreceiveTensor    	->	 unimplemented
+	MPI.async.nccl.p2p.broadcastTensor  	->	 available
+	MPI.async.nccl.p2p.reduceTensor     	->	 available
+	MPI.async.nccl.p2p.allreduceTensor  	->	 available
+	MPI.async.nccl.p2p.sendreceiveTensor 	->	 unimplemented
 }
 ```
-
-FIXME: nccl.async vs async.nccl is backwards when compared to manually calling collectives.
 
 # Collective selector
 ### torchmpi.collectiveSelectorToString()
