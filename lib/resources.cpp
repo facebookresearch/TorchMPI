@@ -748,7 +748,7 @@ CollectiveResourcesCuda* acquireCollectiveResourcesCuda(
   }
 #endif
 
-#ifdef TORCH_MPI_GLOO
+#ifdef TORCH_MPI_GLOO_CUDA
   if (gloo.with && !it->second->glooContext) {
     it->second->glooContext =
       makeGlooContext(it->second->comm->intraComm);
@@ -1243,6 +1243,14 @@ extern "C" {
 
   int torchmpi_has_gloo() {
 #ifdef TORCH_MPI_GLOO
+    return 1;
+#else
+    return 0;
+#endif
+  }
+
+  int torchmpi_has_gloo_cuda() {
+#ifdef TORCH_MPI_GLOO_CUDA
     return 1;
 #else
     return 0;

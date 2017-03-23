@@ -15,7 +15,7 @@
 
 #include "resources.h"
 
-#if TORCH_MPI_GLOO
+#if TORCH_MPI_GLOO_CUDA
 #include <gloo/cuda_allreduce_ring.h>
 #include <gloo/cuda_allreduce_ring_chunked.h>
 #include <gloo/cuda_broadcast_one_to_all.h>
@@ -1081,7 +1081,7 @@ SynchronizationHandle* allreduceAsync(THCState* state,
 
 // ns mpi::th
 
-#ifdef TORCH_MPI_GLOO
+#ifdef TORCH_MPI_GLOO_CUDA
 
 namespace gloo { namespace thc {
 
@@ -1422,7 +1422,7 @@ extern "C" {
 #define DEFINE_NCCL_FUNCTIONS(CPP_TYPE, THC_TENSOR_TYPE)
 #endif
 
-#ifdef TORCH_MPI_GLOO
+#ifdef TORCH_MPI_GLOO_CUDA
 #define DEFINE_GLOO_FUNCTIONS(CPP_TYPE, THC_TENSOR_TYPE)        \
   DEFINE_GLOO_BROADCAST(CPP_TYPE, THC_TENSOR_TYPE);             \
   DEFINE_GLOO_BROADCAST_ASYNC(CPP_TYPE, THC_TENSOR_TYPE);       \

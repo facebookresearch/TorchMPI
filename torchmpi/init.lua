@@ -56,6 +56,8 @@ MPI.start = argcheck {
       MPI.hasGloo = (MPI.C.torchmpi_has_gloo() ~= 0) and true or false
       if MPI.hasGloo then setupGloo() end
 
+      MPI.hasGlooCuda = (MPI.C.torchmpi_has_gloo_cuda() ~= 0) and true or false
+
       if not withCartesianCommunicator then
          MPI.C.torchmpi_set_tree_communicator()
       else
@@ -491,13 +493,13 @@ configureCollectiveSelector = function()
                allreduceTensor = MPI.ipcGroups and MPI.p2p.allreduceTensor
                   or (MPI.nccl and MPI.nccl.allreduceTensor)
                   or MPI.allreduceTensor
-                  or (MPI.gloo and MPI.gloo.allreduceTensor),
+                  or (MPI.hasGlooCuda and MPI.gloo and MPI.gloo.allreduceTensor),
                -- Cross ipcGroups p2p.broadcast does not work, use stock MPI
                broadcastTensor = MPI.singleIPCGroup and MPI.p2p.broadcastTensor or
                   MPI.ipcGroups and MPI.broadcastTensor
                   or (MPI.nccl and MPI.nccl.broadcastTensor)
                   or MPI.broadcastTensor
-                  or (MPI.gloo and MPI.gloo.broadcastTensor),
+                  or (MPI.hasGlooCuda and MPI.gloo and MPI.gloo.broadcastTensor),
                reduceTensor = MPI.nccl and MPI.nccl.reduceTensor or MPI.reduceTensor,
                sendreceiveTensor = MPI.sendreceiveTensor,
             },
@@ -509,7 +511,7 @@ configureCollectiveSelector = function()
                broadcastTensor = MPI.ipcGroups and MPI.async.p2p.broadcastTensor
                   or (MPI.nccl and MPI.async.nccl.broadcastTensor)
                   or MPI.async.broadcastTensor
-                  or (MPI.gloo and MPI.async.gloo.broadcastTensor),
+                  or (MPI.hasGlooCuda and MPI.gloo and MPI.async.gloo.broadcastTensor),
                reduceTensor = MPI.nccl and MPI.async.nccl.reduceTensor or MPI.reduceTensor, -- OpenMPI-1.8 async version seems bugged ??
                sendreceiveTensor = MPI.sendreceiveTensor, -- no async version
             },
@@ -519,7 +521,7 @@ configureCollectiveSelector = function()
                allreduceTensor = MPI.ipcGroups and MPI.p2p.allreduceTensor
                   or (MPI.nccl and MPI.nccl.allreduceTensor)
                   or MPI.allreduceTensor
-                  or (MPI.gloo and MPI.gloo.allreduceTensor),
+                  or (MPI.hasGlooCuda and MPI.gloo and MPI.gloo.allreduceTensor),
                broadcastTensor = MPI.broadcastTensor or (MPI.gloo and MPI.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,
                sendreceiveTensor = MPI.sendreceiveTensor,
@@ -528,8 +530,9 @@ configureCollectiveSelector = function()
                allreduceTensor = MPI.ipcGroups and MPI.async.p2p.allreduceTensor
                   or (MPI.nccl and MPI.async.nccl.allreduceTensor)
                   or MPI.async.allreduceTensor
-                  or (MPI.gloo and MPI.async.gloo.allreduceTensor),
-               broadcastTensor = MPI.async.broadcastTensor or (MPI.gloo and MPI.async.gloo.broadcastTensor),
+                  or (MPI.hasGlooCuda and MPI.gloo and MPI.async.gloo.allreduceTensor),
+               broadcastTensor = MPI.async.broadcastTensor
+                   or (MPI.hasGlooCuda and MPI.gloo and MPI.async.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,           -- OpenMPI-1.8 async version seems bugged ??
                sendreceiveTensor = MPI.sendreceiveTensor, -- no async version
             },
@@ -572,7 +575,11 @@ function MPI.collectiveAvailability(cpu, gpu)
                            func = MPI.hasNCCL and func.nccl or nil
                         end
                         if gloo then
-                           func = MPI.hasGloo and func.gloo or nil
+                           if not gpu then
+                              func = MPI.hasGloo and func.gloo or nil
+                           else
+                              func = MPI.hasGlooCuda and func.gloo or nil
+                           end
                         end
                         if func ~= nil then
                            func = p2p and func.p2p or func
@@ -585,7 +592,7 @@ function MPI.collectiveAvailability(cpu, gpu)
                            val = collective == "sendreceive" and "unimplemented" or "unavailable"
                         end
 
-                        if func == nil and gloo and not MPI.hasGloo then
+                        if func == nil and gloo and ((not gpu and not MPI.hasGloo) or (gpu and not MPI.hasGlooCuda)) then
                            val = (collective == "sendreceive" or collective == "reduce") and "unimplemented" or "unavailable"
                         end
 
