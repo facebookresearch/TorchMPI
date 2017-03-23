@@ -1143,10 +1143,11 @@ cudaStream_t allreduce(ScalarType* inputData,
   checkReduceFunction(mpiRedOp);
   std::vector<ScalarType *> v { inputData };
 
-  // RingChunked does not work without inplace since it requires
-  // each ptr element to be on a separate device.
-  if (nElement <= mpi::constants::kSmallAllreduceSizeGPU
-      || inputData != outputData) {
+#ifdef CUDA_ALLREDUCE_CHUNKED_ENABLED
+  if (nElement <= mpi::constants::kSmallAllreduceSizeGPU) {
+#else
+  if (true) {
+#endif
     ::gloo::CudaAllreduceRing<ScalarType> allreduce(
       context, v, nElement);
     allreduce.run();
