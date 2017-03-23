@@ -1,5 +1,5 @@
 # Collectives
-We provide minimal wrappers around MPI and NCCL collectives to perform synchronizations on Torch CPU and GPU tensors.
+We provide minimal wrappers around MPI, GLOO and NCCL collectives to perform synchronizations on Torch CPU and GPU tensors.
 In the case of asynchronous collectives, an opaque handler is returned and a wait primitive is exposed to abstract MPI_Request objects, CUDA streams or CPU-side futures.
 Where necessary we developed a minimal set of collectives to alleviate certain issues:
 - traditional MPI collectives may perform poorly for large messages originating on GPUs
@@ -14,12 +14,12 @@ you can switch implementations to get the best performance available.
 # Manually calling collectives
 The collectives we expose follow the generic patterns.
 For synchronous collectives: ```torchmpi.[impl.][name.][type]()```, where:
-- impl is either omitted (for the stock mpi implementation), ```nccl``` or ```p2p```
+- impl is either omitted (for the stock mpi implementation), ```nccl```, ```gloo```, or ```p2p```
 - name is either of ```broadcast```, ```reduce```, ```sendreceive``` or ```allreduce```
 - type is a CPU of GPU Torch tensor type
 
 For asynchronous collectives: ```userdata<SynchronizationHandle*> torchmpi.async.[impl.][name.][type]()```, where:
-- impl is either omitted (for the stock mpi implementation), ```nccl``` or ```p2p```
+- impl is either omitted (for the stock mpi implementation), ```nccl```, ```gloo```, or ```p2p```
 - name is either of ```broadcast```, ```reduce```, ```sendreceive``` or ```allreduce```
 - type is a CPU of GPU Torch tensor type
 Asynchronous collectives return a ```SynchronizationHandle``` object on which you should call ```torchmpi.syncHandle()```

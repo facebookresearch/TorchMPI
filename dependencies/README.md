@@ -23,8 +23,14 @@ git clone https://github.com/NVIDIA/nccl.git && cd nccl && make -j 16 && make in
 
 # OpenMPI
 ```
-wget https://www.open-mpi.org/software/ompi/v2.0/downloads/openmpi-2.0.1.tar.bz2 && bunzip2 openmpi-2.0.1.tar.bz2 && cd openmpi
+wget https://www.open-mpi.org/software/ompi/v2.0/downloads/openmpi-2.0.1.tar.bz2 && bunzip2 openmpi-2.0.1.tar.bz2 && tar xf openmpi-2.0.1.tar && cd openmpi-2.0.1
 ./configure --prefix=/usr/local --enable-mpi-cxx --enable-shared --with-slurm --enable-event-thread-support --enable-opal-multi-threads --enable-orte-progress-threads --enable-mpi-thread-multiple --enable-mpi-ext=affinity,cuda --with-cuda=/usr/local/cuda
+make -j 16 && make install
+```
+
+# GLOO
+```
+git clone https://github.com/facebookincubator/gloo.git && cd gloo && mkdir build && cd build &&  cmake ../ -DUSE_CUDA=ON -DUSE_MPI=ON && make -j 16
 ```
 
 # Manually deploy given a HOSTFILE and a TORCHMPI_ROOT path

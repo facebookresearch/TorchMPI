@@ -7,7 +7,7 @@ TorchMPI also makes oversubscription of mixed CPU-GPU models practical and allow
 
 At the moment, TorchMPI provides the following functions and classes:
 - [Basic Functionalities](https://github.com/facebookresearch/TorchMPI/docs/collectives.md) allow starting, synchronizing and stopping processes,
-- [Collectives](https://github.com/facebookresearch/TorchMPI/docs/collectives.md) wrap a subset of MPI, NCCL and a custom implementation of collectives useful for deeplearning. These collectives operate on dense Torch tensors and scalar values and come in synchronous or asynchronous flavors,
+- [Collectives](https://github.com/facebookresearch/TorchMPI/docs/collectives.md) wrap a subset of MPI, NCCL, GLOO and a custom implementation of collectives useful for deeplearning. These collectives operate on dense Torch tensors and scalar values and come in synchronous or asynchronous flavors,
 - [NN](https://github.com/facebookresearch/TorchMPI/docs/nn.md) extends ```torch.nn``` with support for synchronous and asynchronous collectives to automatically turn a
 ```torch.nn``` model to run on a distributed cluster of CPUs and GPUs,
 - [Engine](https://github.com/facebookresearch/TorchMPI/docs/engine.md) is a [torchnet](https://github.com/torchnet/torchnet) style engine which allows simple networks to
@@ -61,6 +61,7 @@ Please first check which dependencies you need:
   - [CUDA Toolkit](https://developer.nvidia.com/cuda-zone) (optional)
   - [cutorch](https://github.com/torch/cutorch) also mandatory (optional)
   - [NCCL](https://github.com/NVIDIA/nccl) for fast single node collectives (optional)
+  - [GLOO](https://github.com/facebookincubator/gloo/tree/master/gloo) for non-mpi based collective algorithms (optional)
 
 For instructions on how to install dependencies and OpenMPI, see [dependencies](https://github.com/facebookresearch/TorchMPI/dependencies/README.md).
 
@@ -97,14 +98,14 @@ This restriction can be lifted at the cost of minor extra synchronizations.
 If you need this feature, please reach out!
 
 ## Collectives
-We provide minimal wrappers around MPI and NCCL collectives to perform synchronizations on Torch CPU and GPU tensors.
+We provide minimal wrappers around MPI, NCCL, and GLOO collectives to perform synchronizations on Torch CPU and GPU tensors.
 For asynchronous collectives, we provide an opaque handler and a wait primitive to abstract MPI_Request objects, CUDA streams or CPU-side futures.
 Where necessary we developed a minimal set of collectives to alleviate certain issues:
 - traditional MPI collectives have been tuned for latency of small messages but may perform poorly for large messages originating on GPUs
 - NCCL collectives easily deadlock and extra synchronizations are necessary to avoid certain pathological cases
 - within a group of cudaIPC capable devices, we found that the performance of NCCL Allreduce can be lower than a custom implementation based on cudaIPC
 
-As a consequence we implemented a CPU and a GPU version of Broadcast and Allreduce which are usable alongside MPI or NCCL collectives.
+As a consequence we implemented a CPU and a GPU version of Broadcast and Allreduce which are usable alongside MPI, NCCL, or GLOO collectives.
 These implementation come in 3 flavors: direct MPI_Isend / MPI_Irecv, staged via CPU and cudaIPC
 Depending on your use case (synchronous vs asynchronous, overprovisioned vs not, CPU or GPU bound, small vs large messages),
 you can switch implementations to get the best performance available.
@@ -123,3 +124,5 @@ MPI implementations are also notorious for lack of standard IPv6 support.
 Experiences with dynamic communicator creation with OpenMPI 1.10 over IPv6 were unsuccessful so we put a pin in it at the time being.
 
 We currently have 2 open issues related to NCCL deadlocks when mixed with threading or overprovisioning.
+
+We currently have an open issue related to GLOO Allreduce chunked implementation.
