@@ -422,7 +422,7 @@ initPerNodeCommunicators = function()
             MPI.singleIPCGroup = false
          end
       end
-      if MPI.ipcGroups then
+      if MPI.ipcGroup then
          accessible = accessible
       else
          accessible = ''
