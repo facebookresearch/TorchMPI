@@ -87,10 +87,10 @@ namespace torch { namespace mpi { namespace resources {
 CollectiveResources::CollectiveResources(void* p, const Communicator* pc) :
     inUse(false),
     comm(new Communicator(*pc)),
-#ifdef TORCH_MPI_GLOO
-    glooContext(nullptr),
-#endif
     ptr(p)
+#ifdef TORCH_MPI_GLOO
+    , glooContext(nullptr)
+#endif
 {
   MAIN_THREAD_GUARD();
 }
