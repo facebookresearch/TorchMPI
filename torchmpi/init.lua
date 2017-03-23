@@ -556,18 +556,18 @@ function MPI.collectiveAvailability(cpu, gpu)
       else
          str = str .. "gpu = {\n"
       end
-      for _, nccl in ipairs({false, true}) do
-         for _, gloo in ipairs(nccl and {false} or {false, true}) do
-            for _, async in ipairs({false, true}) do
+      for _, async in ipairs({false, true}) do
+         for _, nccl in ipairs({false, true}) do
+            for _, gloo in ipairs(nccl and {false} or {false, true}) do
                for _, p2p in ipairs(gloo and {false} or {false, true}) do
                   for _, collective in ipairs({"broadcast", "reduce", "allreduce", "sendreceive"}) do
                      if gpu or not nccl then -- cpu + nccl not valid
-                        local funcname = "MPI"
+                        local funcname = "MPI" .. (async and ".async" or "")
                             .. (nccl and ".nccl" or "" ) .. (gloo and ".gloo" or "")
-                            .. (async and ".async" or "") .. (p2p and ".p2p." or ".")
-                            .. collective .. "Tensor"
+                            .. (p2p and ".p2p." or ".") .. collective .. "Tensor"
 
                         local func = MPI
+                        func = async and func.async or func
                         if nccl then
                            func = MPI.hasNCCL and func.nccl or nil
                         end
@@ -575,7 +575,6 @@ function MPI.collectiveAvailability(cpu, gpu)
                            func = MPI.hasGloo and func.gloo or nil
                         end
                         if func ~= nil then
-                           func = async and func.async or func
                            func = p2p and func.p2p or func
                            func = func[collective .. "Tensor"]
                         end
