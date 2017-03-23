@@ -118,7 +118,11 @@ local function getCollectives()
          sel = mpi.hasNCCL and sel.nccl or nil
       end
       if config.gloo then
-         sel = mpi.hasGloo and sel.gloo or nil
+         if not config.gpu then
+            sel = mpi.hasGloo and sel.gloo or nil
+         else
+            sel = mpi.hasGlooCuda and sel.gloo or nil
+         end
       end
       if sel ~= nil then
         sel = config.p2p and sel.p2p or sel
@@ -391,8 +395,11 @@ local function setImplemented()
       tests.reduce.implemented = mpi.hasNCCL
       tests.allreduce.implemented = mpi.hasNCCL
    elseif config.tests == "gloo" then
-      tests.broadcast.implemented = mpi.hasGloo and config.inPlace
-      tests.allreduce.implemented = mpi.hasGloo and config.inPlace
+      local implemented =
+         (not mpi.gpu and mpi.hasGloo and config.inPlace) or
+         (mpi.gpu and mpi.hasGlooCuda and config.inPlace)
+      tests.broadcast.implemented = implemented
+      tests.allreduce.implemented = implemented
    end
 end
 

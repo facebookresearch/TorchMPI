@@ -155,6 +155,7 @@ local function declMPI(withCuda)
       int torchmpi_size();
       int torchmpi_has_nccl();
       int torchmpi_has_gloo();
+      int torchmpi_has_gloo_cuda();
       void torchmpi_free_ipc_descriptors();
       const char* torchmpi_communicator_names();
       int torchmpi_push_communicator(const char* key);

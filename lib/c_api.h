@@ -24,8 +24,11 @@ extern "C" {
   // Is NCCL present
   int torchmpi_has_nccl();
 
-// Is Gloo present
+  // Is Gloo present
   int torchmpi_has_gloo();
+
+  // Is Gloo-cuda present
+  int torchmpi_has_gloo_cuda();
 
   //////////////////////////////////////////////////////////////////////////////
   ////////////////////// Communicators Management //////////////////////////////
