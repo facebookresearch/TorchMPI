@@ -21,6 +21,7 @@ namespace mpi { namespace thc {
 
 using IPCDesc = torch::mpi::resources::cuda::IPCDesc;
 using SynchronizationHandle = torch::mpi::resources::SynchronizationHandle;
+using TensorDesc = torch::mpi::resources::TensorDesc;
 
 namespace detail {
 
@@ -114,9 +115,15 @@ void sendreceive(THCState* state,
                  int dst);
 
 template<typename ScalarType, typename THTensorType>
+void allgatherTensorDesc(THCState* state,
+                         THTensorType *t,
+                         TensorDesc* td);
+
+template<typename ScalarType, typename THTensorType>
 void allgather(THCState* state,
                THTensorType *t,
-               THTensorType* output);
+               THTensorType *output,
+               TensorDesc* td);
 
 }}}
 

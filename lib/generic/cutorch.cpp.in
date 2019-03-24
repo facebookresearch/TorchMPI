@@ -107,6 +107,31 @@
   template<> void free(THCState* state, THStorageType* t)      \
   { return PPCAT( THStorageType, _free(state, t) ); }
 
+// TODO: creating a new tensor would be more efficient if we can't fit
+// realloc, but changes API since we would need to return new tensor.
+#define THC_RESIZE_TENSOR_FROM_DESC(THType)                                    \
+  void PPCAT(torchmpi_resize_tensor_from_desc_, THType)                        \
+  (THCState *state, THType *t, torch::mpi::resources::TensorDesc *td) {        \
+    auto size = td->size;                                                      \
+    if (!td->displacementsCalculated) {                                        \
+      td->calculateDisplacements();                                            \
+    }                                                                          \
+    int sizeNeeded = td->displacements[size - 1] + td->counts[size - 1];       \
+    if (sizeNeeded > nElement(state, t)) {                                     \
+      THLongStorage *storageCopy = newSizeOf(state, t);                        \
+                                                                               \
+      long outerStride = stride(state, t, 0);                                  \
+      if ( (sizeNeeded % outerStride) != 0 ) {                                 \
+        THError("Size mismatch: assuming tensor gathered along last dimension" \
+                ", but outer stride of %d doesn't divide total size of %d\n",  \
+                outerStride, sizeNeeded);                                      \
+      }                                                                        \
+      storageCopy->data[t->nDimension - 1] = sizeNeeded / outerStride;         \
+      resizeNd(state, t, storageCopy->size, storageCopy->data, NULL);          \
+      THLongStorage_free(storageCopy);                                         \
+    }                                                                          \
+  }
+
 
 namespace torch { namespace thc {
 

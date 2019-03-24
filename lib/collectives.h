@@ -81,7 +81,10 @@ template<typename ScalarType, typename THTensorType>
 void sendreceive(THTensorType* t, int src, int dst);
 
 template<typename ScalarType, typename THTensorType>
-void allgather(THTensorType *t, THTensorType* output);
+void allgatherTensorDesc(THTensorType* t, resources::TensorDesc* td);
+
+template<typename ScalarType, typename THTensorType>
+void allgather(THTensorType *t, THTensorType* output, resources::TensorDesc* td);
 
 }}}
 

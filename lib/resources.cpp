@@ -377,6 +377,20 @@ string Communicator::toString() const {
   return std::string(key.key);
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Tensor descriptor
+///////////////////////////////////////////////////////////////////////////////
+TensorDesc::TensorDesc(int s) :
+    size(s), counts(s), displacements(s), displacementsCalculated(false) {}
+
+void TensorDesc::calculateDisplacements() {
+  displacements[0] = 0;
+  for (int i = 1; i < size; ++i) {
+    displacements[i] = counts[i-1] + displacements[i-1];
+  }
+  displacementsCalculated = true;
+}
+
 ///////////////////////////////////////////////////////////////////////////
 // RAII wrapper to set / unset a communicator level
 ///////////////////////////////////////////////////////////////////////////

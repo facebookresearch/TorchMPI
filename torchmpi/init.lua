@@ -162,9 +162,14 @@ MPI.sendreceiveTensor = function(input, src, dst)
    return MPI.syncHandle(wrap.executeMPICFun(fun, input, src, dst))
 end
 
-MPI.allgatherTensor = function(input, output)
+MPI.allgatherTensorDesc = function(input, tensorDesc)
+   local fun = 'torchmpi_allgatherdesc_TH'..torch.type(input):gsub('torch.', '')
+   return MPI.syncHandle(wrap.executeMPICFun(fun, input, tensorDesc))
+end
+
+MPI.allgatherTensor = function(input, output, tensorDesc)
    local fun = 'torchmpi_allgather_TH'..torch.type(input):gsub('torch.', '')
-   return MPI.syncHandle(wrap.executeMPICFun2(fun, input, output))
+   return MPI.syncHandle(wrap.executeMPICFun2(fun, input, output, tensorDesc))
 end
 
 --------------------- Asynchronous collectives CPU or GPU ----------------------
@@ -210,7 +215,15 @@ MPI.async.sendreceiveTensor = nil --[[function(input, src, dst)
 end
 --]]
 
+MPI.async.allgatherTensorDesc = function(input, tensorDesc)
+   local fun = 'torchmpi_async_allgatherdesc_TH'..torch.type(input):gsub('torch.', '')
+   return MPI.syncHandle(wrap.executeMPICFun(fun, input, tensorDesc))
+end
 
+MPI.async.allgatherTensor = function(input, output, tensorDesc)
+   local fun = 'torchmpi_async_allgather_TH'..torch.type(input):gsub('torch.', '')
+   return MPI.syncHandle(wrap.executeMPICFun2(fun, input, output, tensorDesc))
+end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -336,7 +349,7 @@ setupNCCL = function()
    --]]
 end
 
-setupGloo= function()
+setupGloo = function()
    --------------------- Synchronous collectives CPU only -------------------------
    MPI.gloo = {}
 
@@ -396,6 +409,20 @@ end
 
 
 ---------------------------------- Helpers -------------------------------------
+
+-- TensorDesc related functions
+MPI.newTensorDesc = function(size)
+   return MPI.C.torchmpi_new_tensor_descriptor(size)
+end
+
+MPI.freeTensorDesc = function(tensorDesc)
+   return MPI.C.torchmpi_free_tensor_descriptor(tensorDesc)
+end
+
+MPI.resizeTensorFromDesc = function(tensor, tensorDesc)
+   local fun = 'torchmpi_resize_tensor_from_desc_TH'..torch.type(tensor):gsub('torch.', '')
+   return MPI.syncHandle(wrap.executeMPICFun(fun, tensor, tensorDesc))
+end
 
 -- Sets up a 2-level communicator below the current communicator:
 --   1. First-level is inter-(node, cudaIPC group)
@@ -470,13 +497,18 @@ configureCollectiveSelector = function()
                reduceTensor = MPI.reduceTensor,
                sendreceiveTensor = MPI.sendreceiveTensor,
                allgatherTensor = MPI.allgatherTensor,
+               -- include allgatherTensorDesc for convenience (so we can use selector e.g. ns.allgatherTensorDesc),
+               -- but don't print it because it's not a "real" collective.  Perhaps these tables should be reworked
+               -- to specify collective rather than collective + type (tensor/tensorDesc).
+               allgatherTensorDesc = MPI.allgatherTensorDesc,
             },
             async = {
                allreduceTensor = MPI.async.p2p.allreduceTensor or (MPI.gloo and MPI.async.gloo.allreduceTensor),
                broadcastTensor = MPI.async.broadcastTensor or (MPI.gloo and MPI.async.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,           -- OpenMPI-1.8  async version seems bugged ??
                sendreceiveTensor = MPI.sendreceiveTensor, -- no async version
-               allgatherTensor = MPI.allgatherTensor,
+               allgatherTensor = MPI.async.allgatherTensor,
+               allgatherTensorDesc = MPI.async.allgatherTensorDesc,
             },
          },
          multinode = {
@@ -486,13 +518,15 @@ configureCollectiveSelector = function()
                reduceTensor = MPI.reduceTensor,
                sendreceiveTensor = MPI.sendreceiveTensor,
                allgatherTensor = MPI.allgatherTensor,
+               allgatherTensorDesc = MPI.allgatherTensorDesc,
             },
             async = {
                allreduceTensor = MPI.async.p2p.allreduceTensor or (MPI.gloo and MPI.async.gloo.allreduceTensor),
                broadcastTensor = MPI.async.broadcastTensor or (MPI.gloo and MPI.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,           -- OpenMPI-1.8 async version seems bugged ??
                sendreceiveTensor = MPI.sendreceiveTensor, -- no async version
-               allgatherTensor = MPI.allgatherTensor,
+               allgatherTensor = MPI.async.allgatherTensor,
+               allgatherTensorDesc = MPI.async.allgatherTensorDesc,
             },
          },
       },
@@ -512,6 +546,7 @@ configureCollectiveSelector = function()
                reduceTensor = MPI.nccl and MPI.nccl.reduceTensor or MPI.reduceTensor,
                sendreceiveTensor = MPI.sendreceiveTensor,
                allgatherTensor = MPI.allgatherTensor,
+               allgatherTensorDesc = MPI.allgatherTensorDesc,
             },
             async = {
                allreduceTensor = MPI.ipcGroups and MPI.async.p2p.allreduceTensor
@@ -524,7 +559,8 @@ configureCollectiveSelector = function()
                   or (MPI.hasGlooCuda and MPI.gloo and MPI.async.gloo.broadcastTensor),
                reduceTensor = MPI.nccl and MPI.async.nccl.reduceTensor or MPI.reduceTensor, -- OpenMPI-1.8 async version seems bugged ??
                sendreceiveTensor = MPI.sendreceiveTensor, -- no async version
-               allgatherTensor = MPI.allgatherTensor,
+               allgatherTensor = MPI.async.allgatherTensor,
+               allgatherTensorDesc = MPI.async.allgatherTensorDesc,
             },
          },
          multinode = {
@@ -537,6 +573,7 @@ configureCollectiveSelector = function()
                reduceTensor = MPI.reduceTensor,
                sendreceiveTensor = MPI.sendreceiveTensor,
                allgatherTensor = MPI.allgatherTensor,
+               allgatherTensorDesc = MPI.allgatherTensorDesc,
             },
             async = {
                allreduceTensor = MPI.ipcGroups and MPI.async.p2p.allreduceTensor
@@ -547,7 +584,8 @@ configureCollectiveSelector = function()
                    or (MPI.hasGlooCuda and MPI.gloo and MPI.async.gloo.broadcastTensor),
                reduceTensor = MPI.reduceTensor,           -- OpenMPI-1.8 async version seems bugged ??
                sendreceiveTensor = MPI.sendreceiveTensor, -- no async version
-               allgatherTensor = MPI.allgatherTensor,
+               allgatherTensor = MPI.async.allgatherTensor,
+               allgatherTensorDesc = MPI.async.allgatherTensorDesc,
             },
          },
       },

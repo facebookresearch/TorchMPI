@@ -11,7 +11,7 @@ local ffi = require("ffi")
 local types = require("torchmpi.types")
 
 local function declMPI(withCuda)
-   local allreduce_def, broadcast_def, reduce_def, sendreceive_def, allgather_def, parameterserver_def = "", "", "", "", "", ""
+   local allreduce_def, broadcast_def, reduce_def, sendreceive_def, allgather_def, parameterserver_def, resize_def = "", "", "", "", "", "", ""
    for _, v in pairs(types.torch) do
       allreduce_def = allreduce_def .. [[
          void torchmpi_allreduce_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, TH]] .. v .. [[Tensor* output);
@@ -33,7 +33,10 @@ local function declMPI(withCuda)
          void torchmpi_sendreceive_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, int src, int dst);
       ]]
       allgather_def = allgather_def .. [[
-         void torchmpi_allgather_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, TH]] .. v .. [[Tensor* output);
+         void torchmpi_allgatherdesc_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, TensorDescHandle tensorDesc);
+         SynchronizationHandle* torchmpi_async_allgatherdesc_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, TensorDescHandle tensorDesc);
+         void torchmpi_allgather_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, TH]] .. v .. [[Tensor* output, TensorDescHandle tensorDesc);
+         SynchronizationHandle* torchmpi_async_allgather_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input, TH]] .. v .. [[Tensor* output, TensorDescHandle tensorDesc);
       ]]
       parameterserver_def = parameterserver_def .. [[
          void* torchmpi_parameterserver_init_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* input);
@@ -45,6 +48,9 @@ local function declMPI(withCuda)
          ParameterServerSynchronizationHandle* torchmpi_parameterserver_synchronize_handle(ParameterServerSynchronizationHandle*);
          void torchmpi_parameterserver_free(void* ps);
          void torchmpi_parameterserver_free_all();
+      ]]
+      resize_def = resize_def .. [[
+         void torchmpi_resize_tensor_from_desc_TH]] .. v .. [[Tensor(TH]] .. v .. [[Tensor* t, TensorDescHandle tensorDesc);
       ]]
    end
 
@@ -77,6 +83,9 @@ local function declMPI(withCuda)
 
    end
    local def = [[
+      struct TensorDesc;
+      typedef struct TensorDesc *TensorDescHandle;
+
       typedef void* cudaStream_t;
       typedef struct SynchronizationHandle {
          bool hasMPIRequest;
@@ -147,14 +156,24 @@ local function declMPI(withCuda)
                [[(THCState* state, THCuda]] .. v .. [[Tensor* input, int src, int dst);
          ]]
          allgather_def = allgather_def .. [[
+            void torchmpi_allgatherdesc_THCuda]] .. v .. [[Tensor]] ..
+               [[(THCState* state, THCuda]] .. v .. [[Tensor* input, TensorDescHandle tensorDesc);
+            SynchronizationHandle* torchmpi_async_allgatherdesc_THCuda]] .. v .. [[Tensor]] ..
+               [[(THCState* state, THCuda]] .. v .. [[Tensor* input, TensorDescHandle tensorDesc);
             void torchmpi_allgather_THCuda]] .. v .. [[Tensor]] ..
-               [[(THCState* state, THCuda]] .. v .. [[Tensor* input, THCuda]] .. v .. [[Tensor* output);
-         ]]
+               [[(THCState* state, THCuda]] .. v .. [[Tensor* input, THCuda]] .. v .. [[Tensor* output, TensorDescHandle tensorDesc);
+            SynchronizationHandle* torchmpi_async_allgather_THCuda]] .. v .. [[Tensor]] ..
+               [[(THCState* state, THCuda]] .. v .. [[Tensor* input, THCuda]] .. v .. [[Tensor* output, TensorDescHandle tensorDesc);
+          ]]
+          resize_def = resize_def .. [[
+            void torchmpi_resize_tensor_from_desc_THCuda]] .. v .. [[Tensor]] ..
+               [[(THCState* state, THCuda]] .. v .. [[Tensor* t, TensorDescHandle tensorDesc);
+          ]]
       end
    end
 
    def = def .. allreduce_def .. broadcast_def .. reduce_def .. sendreceive_def .. allgather_def .. parameterserver_def ..
-      allreduce_scalar_def .. broadcast_scalar_def .. reduce_scalar_def .. sendreceive_scalar_def ..
+      resize_def .. allreduce_scalar_def .. broadcast_scalar_def .. reduce_scalar_def .. sendreceive_scalar_def ..
    [[
       void torchmpi_start();
       void torchmpi_stop();
@@ -209,6 +228,8 @@ local function declMPI(withCuda)
       int torchmpi_get_collective_thread_pool_size();            // default 1 << 20
       int torchmpi_get_parameterserver_num_threads();            // default 4
       int torchmpi_get_parameterserver_thread_pool_size();       // default 1 << 20
+      TensorDescHandle torchmpi_new_tensor_descriptor(int size);
+      void torchmpi_free_tensor_descriptor(TensorDescHandle td);
       SynchronizationHandle* torchmpi_synchronize_handle(SynchronizationHandle* h);
       void torchmpi_barrier();
       void customBarrier();

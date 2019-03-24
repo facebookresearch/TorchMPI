@@ -313,6 +313,14 @@ void torchmpi_set_collective_span(int begin, int end) {
   setCollectiveSpan(begin, end);
 }
 
+TensorDesc* torchmpi_new_tensor_descriptor(int size) {
+  return new TensorDesc(size);
+}
+
+void torchmpi_free_tensor_descriptor(TensorDesc* td) {
+  delete td;
+}
+
 SynchronizationHandle* torchmpi_synchronize_handle(SynchronizationHandle* h) {
   torch::mpi::resources::wait(h);
   return nullptr;
